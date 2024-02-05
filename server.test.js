@@ -7,4 +7,8 @@ describe("GET /", () => {
     expect(response.statusCode).toBe(200);
     expect(response.text).toBe("Hello, this is your Express backend!");
   });
+
+  afterAll(() => {
+    app.close();
+  });
 });
