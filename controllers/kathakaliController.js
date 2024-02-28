@@ -24,7 +24,7 @@ exports.classifyCharacter = async (req, res) => {
     );
     return res.status(200).json(microserviceResponse.data);
   } catch (error) {
-    console.error('Error uploading image to microservice:', error);
+    console.log('Error uploading image to microservice:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };

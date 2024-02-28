@@ -1,6 +1,6 @@
 const express = require('express');
 const multer = require('multer');
-const makeMulterUploadErrorMiddleware = require('../middleware/makeMulterUploadErrorMiddleware');
+const make = require('../middleware/makeMulterMiddleware');
 // Multer setup for handling file uploads
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -8,9 +8,7 @@ const upload = multer({ storage: storage });
 const router = express.Router();
 const kathakaliController = require('../controllers/kathakaliController');
 
-const multerUploadErrorMiddleware = makeMulterUploadErrorMiddleware(
-  upload.single('image'),
-);
+const multerUploadErrorMiddleware = make(upload.single('image'));
 
 router.post(
   '/',
