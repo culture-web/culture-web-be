@@ -3,6 +3,8 @@ FROM node:21
 
 COPY . .
 
+ENV NODE_ENV=production
+
 # Install dependencies
 RUN npm install
 
