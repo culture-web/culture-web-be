@@ -33,6 +33,8 @@ module.exports = {
         allowModules: ['supertest'],
       },
     ],
+    'import/no-extraneous-dependencies': 'off',
+    'no-underscore-dangle': 'off',
     'prettier/prettier': 'error',
     'no-unused-vars': 'warn',
     'no-console': 'off',

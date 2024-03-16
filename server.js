@@ -1,17 +1,20 @@
 // server.js
 const express = require('express');
+const kathakaliRoutes = require('./routes/kathakaliRoutes');
 
 const app = express();
 const port = 3001; // Choose any available port
 
+// Add a simple route
+app.get('/', (req, res) => {
+  res.send('Hello, this is your Express backend!');
+});
+
+app.use('/kathakali', kathakaliRoutes);
+
 // Start the server
 const server = app.listen(port, () => {
   console.log('Server is running on port 3001');
-});
-
-// Define a simple route
-app.get('/', (req, res) => {
-  res.send('Hello, this is your Express backend!');
 });
 
 const handleShutdown = () => {
