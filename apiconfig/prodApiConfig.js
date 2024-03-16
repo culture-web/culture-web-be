@@ -1,3 +1,3 @@
 module.exports = {
-  kathakaliCharacterClassificationApi: 'http://localhost:5000/classify',
+  kathakaliCharacterClassificationApi: 'http://char-recognition:5000/classify',
 };
