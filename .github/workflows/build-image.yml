@@ -1,0 +1,21 @@
+name: Build Image CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      image-tag:
+        description: 'Docker image tag'
+        required: true
+        default: 'latest'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Login to DockerHub
+        run: echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u culture4web --password-stdin
+      - name: Build the Docker image
+        run: docker build -t culture4web/culture-web-be:${{ github.event.inputs.image-tag }} .
+      - name: Push the Docker image
+        run: docker push culture4web/culture-web-be:${{ github.event.inputs.image-tag }}
