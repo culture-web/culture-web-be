@@ -1,9 +1,12 @@
 // server.js
 const express = require('express');
+const cors = require('cors');
 const kathakaliRoutes = require('./routes/kathakaliRoutes');
 
 const app = express();
 const port = 3001; // Choose any available port
+
+app.use(cors());
 
 // Add a simple route
 app.get('/api', (req, res) => {
