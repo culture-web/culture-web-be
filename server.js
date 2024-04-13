@@ -6,11 +6,11 @@ const app = express();
 const port = 3001; // Choose any available port
 
 // Add a simple route
-app.get('/', (req, res) => {
+app.get('/api', (req, res) => {
   res.send('Hello, this is your Express backend!');
 });
 
-app.use('/kathakali', kathakaliRoutes);
+app.use('/api/kathakali', kathakaliRoutes);
 
 // Start the server
 const server = app.listen(port, () => {
