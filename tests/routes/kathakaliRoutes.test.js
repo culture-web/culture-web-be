@@ -36,3 +36,21 @@ describe('POST /', () => {
     expect(kathakaliController.classifyCharacter).toHaveBeenCalled();
   });
 });
+
+describe('POST /classify-expression', () => {
+  let app;
+
+  beforeEach(() => {
+    app = express();
+    app.use(kathakaliRoutes);
+    kathakaliController.classifyExpression.mockImplementation((req, res, next) =>
+      res.sendStatus(200),
+    );
+  });
+
+  it('should call classifyExpression', async () => {
+    const res = await request(app).post('/classify-expression').send();
+    expect(res.statusCode).toBe(200);
+    expect(kathakaliController.classifyExpression).toHaveBeenCalled();
+  });
+});

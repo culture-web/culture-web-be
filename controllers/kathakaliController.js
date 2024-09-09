@@ -3,6 +3,40 @@ const axios = require('axios');
 const FormData = require('form-data');
 const apiConfig = require('../apiconfig/apiConfig');
 
+
+exports.classifyExpression = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    if (!req.file.mimetype.startsWith('image')) {
+      return res.status(400).json({ error: 'Invalid file type' });
+    }
+
+    // Create a FormData object
+    const faceForm = new FormData();
+    faceForm.append('image', req.file.buffer, {
+      filename: req.file.originalname,
+    });
+
+    // Make a POST request to the microservice
+    const faceExpressionResponse = await axios.post(
+      apiConfig.expressionDetectionApi,
+      faceForm,
+                  {
+              headers: {
+                ...faceForm.getHeaders(),
+              },
+            },
+    );
+     return res.status(200).json(faceExpressionResponse.data);
+  } catch (error) {
+    console.log('Error uploading image to microservice:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+
 exports.classifyCharacter = async (req, res) => {
   try {
     if (!req.file) {
