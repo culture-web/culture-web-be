@@ -32,23 +32,33 @@ describe('classifyExpression', () => {
     expect(res._getJSONData()).toEqual({ error: 'Invalid file type' });
   });
 
-  it('should return 200 and the response from the microservice if the file is an image', async () => {
+  it('should classify expressions and return 200', async () => {
     req.file = {
       mimetype: 'image/jpeg',
       buffer: Buffer.from('test'),
       originalname: 'test.jpg',
     };
-    const mockResponse = { prediction: 'Love' };
-    axios.post.mockResolvedValue(mockResponse);
+    const faceMockData = ['expression1_encoded', 'expression2_encoded'];
+    const locationMockData = ['location1', 'location2'];
 
-    await classifyExpression(req, res, next);
+    axios.post
+      .mockResolvedValueOnce({
+        data: { faces: faceMockData, locations: locationMockData },
+      })
+      .mockResolvedValueOnce({
+        data: { prediction: 'Love' },
+      })
+      .mockResolvedValueOnce({
+        data: { prediction: 'Comic' },
+      });
+
+    await classifyExpression(req, res);
+
     expect(res.statusCode).toBe(200);
-    expect(res.data).toEqual(mockResponse.data);
-    expect(axios.post).toHaveBeenCalledWith(
-      apiConfig.expressionDetectionApi,
-      expect.anything(),
-      expect.anything(),
-    );
+    expect(res._getJSONData()).toEqual([
+      { prediction: 'Love', location: 'location1' },
+      { prediction: 'Comic', location: 'location2' },
+    ]);
   });
 
   it('should return 500 if there is an error with the microservice', async () => {
