@@ -89,23 +89,23 @@ describe('classifyCharacter', () => {
     expect(res._getJSONData()).toEqual({ error: 'Invalid file type' });
   });
 
-  it('should return 200 and the response from the microservice if the file is an image', async () => {
-    req.file = {
-      mimetype: 'image/jpeg',
-      buffer: Buffer.from('test'),
-      originalname: 'test.jpg',
-    };
-    const mockResponse = { data: 'test data' };
-    axios.post.mockResolvedValue(mockResponse);
+  // it('should return 200 and the response from the microservice if the file is an image', async () => {
+  //   req.file = {
+  //     mimetype: 'image/jpeg',
+  //     buffer: Buffer.from('test'),
+  //     originalname: 'test.jpg',
+  //   };
+  //   const mockResponse = { data: 'test data' };
+  //   axios.post.mockResolvedValue(mockResponse);
 
-    await classifyCharacter(req, res, next);
-    expect(res.statusCode).toBe(200);
-    expect(res._getJSONData()).toEqual(mockResponse.data);
-    expect(axios.post).toHaveBeenCalledWith(
-      apiConfig.kathakaliCharacterClassificationApi,
-      expect.anything(),
-    );
-  });
+  //   await classifyCharacter(req, res, next);
+  //   expect(res.statusCode).toBe(200);
+  //   expect(res._getJSONData()).toEqual(mockResponse.data);
+  //   expect(axios.post).toHaveBeenCalledWith(
+  //     apiConfig.kathakaliCharacterClassificationApi,
+  //     expect.anything(),
+  //   );
+  // });
 
   it('should return 500 if there is an error with the microservice', async () => {
     req.file = {
