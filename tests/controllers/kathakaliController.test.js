@@ -1,6 +1,9 @@
 const axios = require('axios');
 const httpMocks = require('node-mocks-http');
-const { classifyCharacter, classifyExpression } = require('../../controllers/kathakaliController');
+const {
+  classifyCharacter,
+  classifyExpression,
+} = require('../../controllers/kathakaliController');
 const apiConfig = require('../../apiconfig/apiConfig');
 
 jest.mock('axios');
@@ -44,7 +47,7 @@ describe('classifyExpression', () => {
     expect(axios.post).toHaveBeenCalledWith(
       apiConfig.expressionDetectionApi,
       expect.anything(),
-      expect.anything()
+      expect.anything(),
     );
   });
 
@@ -60,8 +63,7 @@ describe('classifyExpression', () => {
     await classifyExpression(req, res, next);
     expect(res.statusCode).toBe(500);
   });
-}
-);
+});
 
 describe('classifyCharacter', () => {
   let req;

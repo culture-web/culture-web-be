@@ -20,8 +20,7 @@ router.post(
 router.post(
   '/classify-expression',
   multerUploadErrorMiddleware,
-  kathakaliController.classifyExpression  // Classify only expressions
+  kathakaliController.classifyExpression, // Classify only expressions
 );
-
 
 module.exports = router;
