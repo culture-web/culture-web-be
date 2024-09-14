@@ -6,7 +6,9 @@
   "scripts": {
     "test": "jest",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "dev": "NODE_ENV=development node server.js"
+
   },
   "keywords": [],
   "author": "",
