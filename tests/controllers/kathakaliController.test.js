@@ -117,16 +117,60 @@ describe('classifyCharacter', () => {
   //   );
   // });
 
-  it('should return 500 if there is an error with the microservice', async () => {
+  it('should classify faces and return 200', async () => {
+    req.file = {
+      mimetype: 'image/jpeg',
+      buffer: Buffer.from('test'),
+      originalname: 'test.jpg',
+    };
+    const faceMockData = ['face1_encoded', 'face2_encoded'];
+    const locationMockData = ['location1', 'location2'];
+
+    axios.post
+      .mockResolvedValueOnce({
+        data: { faces: faceMockData, locations: locationMockData },
+      })
+      .mockResolvedValueOnce({
+        data: { character: 'Kathakali Character 1' },
+      })
+      .mockResolvedValueOnce({
+        data: { character: 'Kathakali Character 2' },
+      });
+
+    await classifyCharacter(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._getJSONData()).toEqual([
+      { character: 'Kathakali Character 1', location: 'location1' },
+      { character: 'Kathakali Character 2', location: 'location2' },
+    ]);
+  });
+
+  it('should return error if classification fails for a face', async () => {
     req.file = {
       mimetype: 'image/jpeg',
       buffer: Buffer.from('test'),
       originalname: 'test.jpg',
     };
 
-    const errorMessage = 'Error uploading image to microservice';
-    axios.post.mockRejectedValue(new Error(errorMessage));
-    await classifyCharacter(req, res, next);
-    expect(res.statusCode).toBe(500);
+    const faceMockData = ['face1_encoded', 'face2_encoded'];
+    const locationMockData = ['location1', 'location2'];
+
+    axios.post
+      .mockResolvedValueOnce({
+        data: { faces: faceMockData, locations: locationMockData },
+      })
+      .mockResolvedValueOnce({
+        data: { character: 'Kathakali Character 1' },
+      })
+      .mockRejectedValueOnce(new Error('Microservice error'));
+
+    await classifyCharacter(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._getJSONData()).toEqual([
+      { character: 'Kathakali Character 1', location: 'location1' },
+      { error: 'Failed to classify face' },
+    ]);
   });
 });
