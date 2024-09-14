@@ -16,4 +16,11 @@ router.post(
   kathakaliController.classifyCharacter,
 );
 
+// Define a separate route to classify only expressions
+router.post(
+  '/classify-expression',
+  multerUploadErrorMiddleware,
+  kathakaliController.classifyExpression, // Classify only expressions
+);
+
 module.exports = router;
