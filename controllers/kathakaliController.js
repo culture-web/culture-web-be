@@ -23,7 +23,9 @@ exports.classifyExpression = async (req, res) => {
       apiConfig.expressionDetectionApi,
       formData,
     );
-    return res.status(200).json(microserviceResponse.data);
+    return res
+      .status(200)
+      .json([{ ...microserviceResponse.data, location: [0, 0, 0, 0, 0] }]);
   } catch (error) {
     console.log('Error uploading image to microservice:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -50,7 +52,9 @@ exports.classifyCharacter = async (req, res) => {
       apiConfig.kathakaliCharacterClassificationApi,
       formData,
     );
-    return res.status(200).json(microserviceResponse.data);
+    return res
+      .status(200)
+      .json([{ ...microserviceResponse.data, location: [0, 0, 0, 0, 0] }]);
   } catch (error) {
     console.log('Error uploading image to microservice:', error);
     return res.status(500).json({ error: 'Internal server error' });
