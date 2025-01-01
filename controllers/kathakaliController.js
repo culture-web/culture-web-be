@@ -112,25 +112,25 @@ exports.classifyExpression = async (req, res) => {
   try {
     // Not multiple means is just singular
     if (!isMultipleRecognition) {
-      return classifyImageSingle(req, res, apiEndpoint);
+      return await classifyImageSingle(req, res, apiEndpoint);
     }
     // If multiple get the faces and send to API
-    return classifyImageMultiple(req, res, apiEndpoint);
+    return await classifyImageMultiple(req, res, apiEndpoint);
   } catch (error) {
     console.log('Error uploading image to microservice:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-exports.classifyCharacter = (req, res) => {
+exports.classifyCharacter = async (req, res) => {
   const isMultipleRecognition = req.body.isMultipleRecognition === 'true';
   const apiEndpoint = apiConfig.kathakaliCharacterClassificationApi;
   try {
     if (!isMultipleRecognition) {
-      return classifyImageSingle(req, res, apiEndpoint);
+      return await classifyImageSingle(req, res, apiEndpoint);
     }
     console.log('multiple recognition');
-    return classifyImageMultiple(req, res, apiEndpoint);
+    return await classifyImageMultiple(req, res, apiEndpoint);
   } catch (error) {
     console.log('Error uploading image to microservice:', error);
     return res.status(500).json({ error: 'Internal server error' });
