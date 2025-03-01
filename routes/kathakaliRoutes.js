@@ -43,7 +43,7 @@ const multerUploadErrorMiddleware = make(upload.single('image'));
 // Export function to upload training data and store it in the database
 router.post(
   '/kathakali/upload-training-data',
-  upload.single('image'),
+  multerUploadErrorMiddleware,
   async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*'); // Temporarily allow all origins
 
