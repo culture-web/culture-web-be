@@ -21,7 +21,7 @@ const s3 = new AWS.S3({
 // PostgreSQL Configuration
 const pool = new Pool({
   user: process.env.DB_USER,
-  host: 'database-1.cbcckekwa9yw.ap-southeast-1.rds.amazonaws.com', // RDS endpoint
+  host: process.env.DB_HOST, // RDS endpoint
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
@@ -43,7 +43,7 @@ const multerUploadErrorMiddleware = make(upload.single('image'));
 
 // Export function to upload training data and store it in the database
 router.post(
-  '/kathakali/upload-training-data',
+  '/upload-training-data',
   multerUploadErrorMiddleware,
   async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*'); // Temporarily allow all origins
