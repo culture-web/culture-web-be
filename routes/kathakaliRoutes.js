@@ -26,6 +26,8 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
+  connectionTimeoutMillis: 10000, // Increase connection timeout
+  idleTimeoutMillis: 30000, // Increase idle timeout
   ssl: {
     rejectUnauthorized: false,
     ca: fs
