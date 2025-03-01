@@ -1,4 +1,5 @@
 const express = require('express');
+const fs = require('fs');
 const multer = require('multer');
 const AWS = require('aws-sdk');
 const { Pool } = require('pg');
@@ -25,7 +26,12 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
-  ssl: { rejectUnauthorized: false },
+  ssl: {
+    rejectUnauthorized: false,
+    ca: fs
+      .readFileSync(path.resolve(__dirname, './ap-southeast-1-bundle.pem'))
+      .toString(),
+  },
 });
 
 // Test the connection to the database
