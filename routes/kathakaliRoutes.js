@@ -11,6 +11,7 @@ const upload = multer({ storage: storage });
 
 const router = express.Router();
 
+console.log(process.env)
 // AWS S3 Configuration
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -20,7 +21,7 @@ const s3 = new AWS.S3({
 // PostgreSQL Configuration
 const pool = new Pool({
   user: process.env.DB_USER,
-  host: process.env.DB_HOST, // RDS endpoint
+  host: 'database-1.cbcckekwa9yw.ap-southeast-1.rds.amazonaws.com', // RDS endpoint
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
