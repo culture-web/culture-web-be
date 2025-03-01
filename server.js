@@ -1,4 +1,5 @@
 // server.js
+require('dotenv').config();
 const express = require('express');
 const kathakaliRoutes = require('./routes/kathakaliRoutes');
 
