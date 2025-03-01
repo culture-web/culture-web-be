@@ -11,7 +11,7 @@ const upload = multer({ storage: storage });
 
 const router = express.Router();
 
-console.log(process.env)
+console.log(process.env);
 // AWS S3 Configuration
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -25,8 +25,21 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
-  ssl: false,
+  ssl: { rejectUnauthorized: true },
 });
+
+// Test the connection to the database
+const testConnection = async () => {
+  try {
+    const res = await pool.query('SELECT NOW()'); // Simple query to test connection
+    console.log('Connection successful:', res.rows[0]); // Should print current timestamp
+  } catch (err) {
+    console.error('Error connecting to database:', err); // Log any error
+  }
+};
+
+// Run the connection test
+testConnection();
 
 // Function to generate a unique file name
 const generateFileName = (originalName) => {
