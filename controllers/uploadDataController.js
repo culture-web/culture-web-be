@@ -1,3 +1,4 @@
+const axios = require('axios');
 // uploadDataController.js
 const AWS = require('aws-sdk');
 const { Pool } = require('pg');
@@ -24,10 +25,10 @@ const pool = new Pool({
 });
 
 // Function to generate a unique file name
-const generateFileName = (originalName) => {
+const generateFileName = (originalName, predicted, actual) => {
   const ext = path.extname(originalName);
   const uniqueSuffix = crypto.randomBytes(6).toString('hex');
-  return `${Date.now()}-${uniqueSuffix}${ext}`;
+  return `${Date.now()}-${uniqueSuffix}-predicted-${predicted}-actual-${actual}${ext}`;
 };
 
 exports.uploadTrainingData = async (req, res) => {
@@ -38,14 +39,20 @@ exports.uploadTrainingData = async (req, res) => {
     return res.status(400).send('No file uploaded.');
   }
 
-  const fileName = generateFileName(req.file.originalname);
+    // Retrieve the predicted and actual strings from the request body
+    const { predicted, actual } = req.body;
+    const { type } = req.body;
+
+  const fileName = generateFileName(req.file.originalname, predicted, actual);
+
 
   // Define parameters for the S3 upload
   const params = {
-    Bucket: 'kathakalai/character', // Replace with your actual bucket and folder path
+    Bucket: `kathakalai/${type}`, // Replace with your actual bucket and folder path
     Key: fileName,
     Body: req.file.buffer,
     ContentType: req.file.mimetype,
+    ACL: 'public-read',
   };
 
   try {
@@ -55,13 +62,23 @@ exports.uploadTrainingData = async (req, res) => {
 
     // Prepare data for database insertion
     // Replace with req.body values if needed (e.g., const { text1, text2 } = req.body)
-    const text1 = 'yo';
-    const text2 = 'yo';
     const query = `INSERT INTO "character_images" (image_url, predicted, actual) VALUES ($1, $2, $3)`;
-    const values = [imageUrl, text1, text2];
+    const values = [imageUrl, predicted, actual];
 
     // Insert record into PostgreSQL
     await pool.query(query, values);
+
+        // Send a message to Telegram channel
+        const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+        const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // e.g., '@yourchannelusername'
+        const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+        const capitalizedType = type.charAt(0).toUpperCase() + type.slice(1);
+        const telegramMessage = `New Upload For Training Data for ${capitalizedType}:\nImage URL: ${imageUrl}\nPredicted by Model: ${predicted}\nActual: ${actual}`;
+        
+        await axios.post(telegramUrl, {
+          chat_id: TELEGRAM_CHAT_ID,
+          text: telegramMessage,
+        });
 
     return res.status(200).send({
       imageUrl,
@@ -76,14 +93,14 @@ exports.uploadTrainingData = async (req, res) => {
 };
 
 // Test the connection to the database
-const testConnection = async () => {
-  try {
-    const res = await pool.query('SELECT NOW()'); // Simple query to test connection
-    console.log('Connection successful:', res.rows[0]); // Should print current timestamp
-  } catch (err) {
-    console.error('Error connecting to database:', err); // Log any error
-  }
-};
+// const testConnection = async () => {
+//   try {
+//     const res = await pool.query('SELECT NOW()'); // Simple query to test connection
+//     console.log('Connection successful:', res.rows[0]); // Should print current timestamp
+//   } catch (err) {
+//     console.error('Error connecting to database:', err); // Log any error
+//   }
+// };
 
-// Run the connection test
-testConnection();
+// // Run the connection test
+// testConnection();
