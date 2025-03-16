@@ -39,12 +39,11 @@ exports.uploadTrainingData = async (req, res) => {
     return res.status(400).send('No file uploaded.');
   }
 
-    // Retrieve the predicted and actual strings from the request body
-    const { predicted, actual } = req.body;
-    const { type } = req.body;
+  // Retrieve the predicted and actual strings from the request body
+  const { predicted, actual } = req.body;
+  const { type } = req.body;
 
   const fileName = generateFileName(req.file.originalname, predicted, actual);
-
 
   // Define parameters for the S3 upload
   const params = {
@@ -60,6 +59,18 @@ exports.uploadTrainingData = async (req, res) => {
     const data = await s3.upload(params).promise();
     const imageUrl = data.Location; // URL of the uploaded image
 
+    // Send a message to Telegram channel
+    const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+    const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // e.g., '@yourchannelusername'
+    const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const capitalizedType = type.charAt(0).toUpperCase() + type.slice(1);
+    const telegramMessage = `New Upload For Training Data for ${capitalizedType}:\nImage URL: ${imageUrl}\nPredicted by Model: ${predicted}\nActual: ${actual}`;
+
+    await axios.post(telegramUrl, {
+      chat_id: TELEGRAM_CHAT_ID,
+      text: telegramMessage,
+    });
+
     // Prepare data for database insertion
     // Replace with req.body values if needed (e.g., const { text1, text2 } = req.body)
     const query = `INSERT INTO "character_images" (image_url, predicted, actual) VALUES ($1, $2, $3)`;
@@ -67,18 +78,6 @@ exports.uploadTrainingData = async (req, res) => {
 
     // Insert record into PostgreSQL
     await pool.query(query, values);
-
-        // Send a message to Telegram channel
-        const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-        const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // e.g., '@yourchannelusername'
-        const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-        const capitalizedType = type.charAt(0).toUpperCase() + type.slice(1);
-        const telegramMessage = `New Upload For Training Data for ${capitalizedType}:\nImage URL: ${imageUrl}\nPredicted by Model: ${predicted}\nActual: ${actual}`;
-        
-        await axios.post(telegramUrl, {
-          chat_id: TELEGRAM_CHAT_ID,
-          text: telegramMessage,
-        });
 
     return res.status(200).send({
       imageUrl,
