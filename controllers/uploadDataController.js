@@ -60,8 +60,7 @@ exports.uploadTrainingData = async (req, res) => {
     const imageUrl = data.Location; // URL of the uploaded image
 
     // Send a message to Telegram channel
-    const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-    const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // e.g., '@yourchannelusername'
+    const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = process.env;
     const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
     const capitalizedType = type.charAt(0).toUpperCase() + type.slice(1);
     const telegramMessage = `New Upload For Training Data for ${capitalizedType}:\nImage URL: ${imageUrl}\nPredicted by Model: ${predicted}\nActual: ${actual}`;
