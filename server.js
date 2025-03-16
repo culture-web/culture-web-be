@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const kathakaliRoutes = require('./routes/kathakaliRoutes');
+const uploadDataRoutes = require('./routes/uploadDataRoutes');
 
 const app = express();
 const port = 3001; // Choose any available port
@@ -12,6 +13,8 @@ app.get('/api', (req, res) => {
 });
 
 app.use('/api/kathakali', kathakaliRoutes);
+
+app.use('/api/kathakali', uploadDataRoutes);
 
 // Start the server
 const server = app.listen(port, () => {
