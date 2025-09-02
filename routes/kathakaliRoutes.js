@@ -25,4 +25,10 @@ router.post(
   kathakaliController.classifyExpression, // Classify only expressions
 );
 
+router.post(
+  '/chat',
+  multerUploadErrorMiddleware,
+  kathakaliController.chat,
+);
+
 module.exports = router;

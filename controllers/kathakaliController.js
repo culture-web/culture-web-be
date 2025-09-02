@@ -136,3 +136,35 @@ exports.classifyCharacter = async (req, res) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+exports.chat = async (req, res) => {
+  try {    
+    const { query, imageAnalysis } = req.body || {};
+
+    if (!query) {
+      console.log('Query missing, returning 400');
+      return res
+        .status(400)
+        .json({ error: 'Query is required' });
+    }
+
+    // TODO: Update with actual chat logic
+    let responseMessage = `You asked: ${query}`;
+
+    if (imageAnalysis) {
+      responseMessage += `\nWith image analysis: ${imageAnalysis}`;
+    }
+
+    const imageFile = req.image;
+
+    if (imageFile) {
+      responseMessage += `\nWith an uploaded image: ${imageFile.originalname}`;
+    }
+
+    console.log('Sending response:', { response: responseMessage });
+    return res.status(200).json({ response: responseMessage });
+  } catch (error) {
+    console.log('Error in chat:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
