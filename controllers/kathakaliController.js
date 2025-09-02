@@ -1,7 +1,7 @@
 /* eslint-disable node/no-unsupported-features/es-syntax */
 const axios = require('axios');
 const FormData = require('form-data');
-const { InferenceClient } = require('@huggingface/inference');
+const huggingFaceClient = require('../client/huggingfaceClient');
 const apiConfig = require('../apiconfig/apiConfig');
 
 // Helper function to classify based on the endpoint for single image
@@ -149,10 +149,8 @@ exports.chat = async (req, res) => {
         .json({ error: 'Query is required' });
     }
 
-    // Initialize Hugging Face client
-    const client = new InferenceClient(process.env.HF_TOKEN);
+    const client = huggingFaceClient.getInstance();
 
-    // Prepare the chat messages
     const messages = [
       {
         role: "user",
@@ -160,7 +158,6 @@ exports.chat = async (req, res) => {
       },
     ];
 
-    // If there's image analysis, add it as context
     if (imageAnalysis) {
       messages.unshift({
         role: "system",
@@ -198,7 +195,6 @@ exports.chat = async (req, res) => {
   } catch (error) {
     console.log('Error in chat:', error);
     
-    // Provide more specific error messages
     if (error.message && error.message.includes('token')) {
       return res.status(401).json({ error: 'Invalid or missing Hugging Face token' });
     }
