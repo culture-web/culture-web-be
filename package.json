@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@huggingface/inference": "^4.7.1",
     "aws-sdk": "^2.1692.0",
     "axios": "^1.6.7",
     "cors": "^2.8.5",

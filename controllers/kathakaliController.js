@@ -1,6 +1,7 @@
 /* eslint-disable node/no-unsupported-features/es-syntax */
 const axios = require('axios');
 const FormData = require('form-data');
+const { InferenceClient } = require('@huggingface/inference');
 const apiConfig = require('../apiconfig/apiConfig');
 
 // Helper function to classify based on the endpoint for single image
@@ -148,23 +149,60 @@ exports.chat = async (req, res) => {
         .json({ error: 'Query is required' });
     }
 
-    // TODO: Update with actual chat logic
-    let responseMessage = `You asked: ${query}`;
+    // Initialize Hugging Face client
+    const client = new InferenceClient(process.env.HF_TOKEN);
 
+    // Prepare the chat messages
+    const messages = [
+      {
+        role: "user",
+        content: query,
+      },
+    ];
+
+    // If there's image analysis, add it as context
     if (imageAnalysis) {
-      responseMessage += `\nWith image analysis: ${imageAnalysis}`;
+      messages.unshift({
+        role: "system",
+        content: `Context from image analysis: ${imageAnalysis}`,
+      });
     }
 
-    const imageFile = req.image;
-
+    // Handle uploaded image file if present
+    const imageFile = req.file || (req.files && req.files.find(file => file.fieldname === 'image'));
     if (imageFile) {
-      responseMessage += `\nWith an uploaded image: ${imageFile.originalname}`;
+      // Add image context to the system message
+      const imageContext = `User has uploaded an image: ${imageFile.originalname}`;
+      if (messages.find(msg => msg.role === "system")) {
+        messages[0].content += `\n${imageContext}`;
+      } else {
+        messages.unshift({
+          role: "system",
+          content: imageContext,
+        });
+      }
     }
 
-    console.log('Sending response:', { response: responseMessage });
+    console.log('Sending messages to Hugging Face:', messages);
+
+    const chatCompletion = await client.chatCompletion({
+      provider: "together",
+      model: "openai/gpt-oss-120b",
+      messages: messages,
+    });
+
+    const responseMessage = chatCompletion.choices[0].message.content;
+
+    console.log('Received response from Hugging Face:', responseMessage);
     return res.status(200).json({ response: responseMessage });
   } catch (error) {
     console.log('Error in chat:', error);
+    
+    // Provide more specific error messages
+    if (error.message && error.message.includes('token')) {
+      return res.status(401).json({ error: 'Invalid or missing Hugging Face token' });
+    }
+    
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
