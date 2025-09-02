@@ -1,11 +1,15 @@
 // server.js
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 const kathakaliRoutes = require('./routes/kathakaliRoutes');
 const uploadDataRoutes = require('./routes/uploadDataRoutes');
 
 const app = express();
 const port = 3001; // Choose any available port
+
+// Enable CORS for all origins
+app.use(cors());
 
 // Add a simple route
 app.get('/api', (req, res) => {
