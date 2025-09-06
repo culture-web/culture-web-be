@@ -139,42 +139,42 @@ exports.classifyCharacter = async (req, res) => {
 };
 
 exports.chat = async (req, res) => {
-  try {    
+  try {
     const { query, imageAnalysis } = req.body || {};
 
     if (!query) {
       console.log('Query missing, returning 400');
-      return res
-        .status(400)
-        .json({ error: 'Query is required' });
+      return res.status(400).json({ error: 'Query is required' });
     }
 
     const client = huggingFaceClient.getInstance();
 
     const messages = [
       {
-        role: "user",
+        role: 'user',
         content: query,
       },
     ];
 
     if (imageAnalysis) {
       messages.unshift({
-        role: "system",
+        role: 'system',
         content: `Context from image analysis: ${imageAnalysis}`,
       });
     }
 
     // Handle uploaded image file if present
-    const imageFile = req.file || (req.files && req.files.find(file => file.fieldname === 'image'));
+    const imageFile =
+      req.file ||
+      (req.files && req.files.find((file) => file.fieldname === 'image'));
     if (imageFile) {
       // Add image context to the system message
       const imageContext = `User has uploaded an image: ${imageFile.originalname}`;
-      if (messages.find(msg => msg.role === "system")) {
+      if (messages.find((msg) => msg.role === 'system')) {
         messages[0].content += `\n${imageContext}`;
       } else {
         messages.unshift({
-          role: "system",
+          role: 'system',
           content: imageContext,
         });
       }
@@ -183,8 +183,8 @@ exports.chat = async (req, res) => {
     console.log('Sending messages to Hugging Face:', messages);
 
     const chatCompletion = await client.chatCompletion({
-      provider: "together",
-      model: "openai/gpt-oss-120b",
+      provider: 'together',
+      model: 'openai/gpt-oss-120b',
       messages: messages,
     });
 
@@ -194,11 +194,13 @@ exports.chat = async (req, res) => {
     return res.status(200).json({ response: responseMessage });
   } catch (error) {
     console.log('Error in chat:', error);
-    
+
     if (error.message && error.message.includes('token')) {
-      return res.status(401).json({ error: 'Invalid or missing Hugging Face token' });
+      return res
+        .status(401)
+        .json({ error: 'Invalid or missing Hugging Face token' });
     }
-    
+
     return res.status(500).json({ error: 'Internal server error' });
   }
 };

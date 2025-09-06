@@ -10,11 +10,10 @@ class HuggingFaceClientSingleton {
       if (!process.env.HF_TOKEN) {
         throw new Error('HF_TOKEN environment variable is required');
       }
-      
+
       this.client = new InferenceClient(process.env.HF_TOKEN);
       console.log('HuggingFace InferenceClient initialized');
     }
-    
     return this.client;
   }
 

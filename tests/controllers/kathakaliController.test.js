@@ -4,7 +4,6 @@ const {
   classifyCharacter,
   classifyExpression,
 } = require('../../controllers/kathakaliController');
-const apiConfig = require('../../apiconfig/apiConfig');
 
 jest.mock('axios');
 

@@ -1,7 +1,6 @@
 const request = require('supertest');
 const express = require('express');
 // const multer = require('multer');
-const make = require('../../middleware/makeMulterMiddleware');
 const kathakaliController = require('../../controllers/kathakaliController');
 const kathakaliRoutes = require('../../routes/kathakaliRoutes');
 
