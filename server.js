@@ -8,8 +8,35 @@ const uploadDataRoutes = require('./routes/uploadDataRoutes');
 const app = express();
 const port = 3001; // Choose any available port
 
-// Enable CORS for all origins
-app.use(cors());
+// Secure CORS configuration with whitelisted origins
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:4173',
+  // Add your production domain here when deploying
+  // 'https://yourdomain.com'
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked request from origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 
 // Add a simple route
 app.get('/api', (req, res) => {
