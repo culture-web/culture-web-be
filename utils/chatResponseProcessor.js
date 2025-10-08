@@ -16,30 +16,35 @@ const preprocessChatResponse = (rawResponse) => {
     const cleanResponse = rawResponse.trim();
 
     // Extract short answer (content before first header or separator)
-    // eslint-disable-next-line security/detect-unsafe-regex
-    const shortAnswerMatch = cleanResponse.match(/^\*\*([^*]+):\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/);
-    
+    // eslint-disable-next-line no-useless-escape
+    const shortAnswerMatch = cleanResponse.match(
+      /^\*\*([^*]+):\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/,
+    );
     if (shortAnswerMatch) {
       response.shortAnswer = shortAnswerMatch[2].trim();
     } else {
       // Try alternative patterns for bold text
-      // eslint-disable-next-line security/detect-unsafe-regex
-      const altBoldMatch = cleanResponse.match(/^\*\*([^*]+)\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/);
-      
+      // eslint-disable-next-line no-useless-escape
+      const altBoldMatch = cleanResponse.match(
+        /^\*\*([^*]+)\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/,
+      );
       if (altBoldMatch) {
         response.shortAnswer = altBoldMatch[2].trim();
       } else {
         // Fallback: use first paragraph or sentence
         const firstParagraph = cleanResponse.split(/\n\s*\n/)[0];
-        response.shortAnswer = firstParagraph.length > 200 
-          ? firstParagraph.substring(0, 200) + '...' 
-          : firstParagraph;
+        response.shortAnswer =
+          firstParagraph.length > 200
+            ? `${firstParagraph.substring(0, 200)}...`
+            : firstParagraph;
       }
     }
 
     // Extract sections based on headers (###, ####, etc.)
-    // eslint-disable-next-line security/detect-unsafe-regex
-    const sectionMatches = cleanResponse.match(/###[^#\n]*(?:\n(?!###)[^\n]*)*(?=\n###|$)/g);
+    // eslint-disable-next-line no-useless-escape
+    const sectionMatches = cleanResponse.match(
+      /###[^#\n]*(?:\n(?!###)[^\n]*)*(?=\n###|$)/g,
+    );
     if (sectionMatches) {
       response.sections = sectionMatches.map((section) => {
         const lines = section.split('\n');
@@ -51,35 +56,43 @@ const preprocessChatResponse = (rawResponse) => {
     }
 
     // Extract tables
-    // eslint-disable-next-line security/detect-unsafe-regex
-    const tableMatches = cleanResponse.match(/\|[^\n]*\|(?:\n\|[^\n]*\|)*(?=\n\s*\n|\n\s*###|$)/g);
+    // eslint-disable-next-line no-useless-escape
+    const tableMatches = cleanResponse.match(
+      /\|[^\n]*\|(?:\n\|[^\n]*\|)*(?=\n\s*\n|\n\s*###|$)/g,
+    );
     if (tableMatches) {
-      response.tables = tableMatches.map((tableText, index) => {
-        const lines = tableText.trim().split('\n').filter(line => line.includes('|'));
-        
-        if (lines.length < 2) return null;
-        
-        // Extract headers
-        const headers = lines[0]
-          .split('|')
-          .map(cell => cell.trim())
-          .filter(cell => cell !== '');
-        
-        // Skip separator line and extract rows
-        const rows = lines.slice(2).map(line => 
-          line.split('|')
-            .map(cell => cell.trim())
-            .filter(cell => cell !== '')
-        );
-        
-        return {
-          id: `table_${index + 1}`,
-          headers,
-          rows,
-          title: `Table ${index + 1}`,
-        };
-      }).filter(table => table !== null);
-      
+      response.tables = tableMatches
+        .map((tableText, index) => {
+          const lines = tableText
+            .trim()
+            .split('\n')
+            .filter((line) => line.includes('|'));
+
+          if (lines.length < 2) return null;
+
+          // Extract headers
+          const headers = lines[0]
+            .split('|')
+            .map((cell) => cell.trim())
+            .filter((cell) => cell !== '');
+
+          // Skip separator line and extract rows
+          const rows = lines.slice(2).map((line) =>
+            line
+              .split('|')
+              .map((cell) => cell.trim())
+              .filter((cell) => cell !== ''),
+          );
+
+          return {
+            id: `table_${index + 1}`,
+            headers,
+            rows,
+            title: `Table ${index + 1}`,
+          };
+        })
+        .filter((table) => table !== null);
+
       if (response.tables.length > 0) {
         response.metadata.hasStructuredContent = true;
       }
@@ -89,7 +102,8 @@ const preprocessChatResponse = (rawResponse) => {
     if (!response.metadata.hasStructuredContent) {
       const parts = cleanResponse.split(/\n\s*\n/);
       if (parts.length > 1) {
-        response.shortAnswer = parts[0];
+        const [firstPart] = parts;
+        response.shortAnswer = firstPart;
         response.reasoning = parts.slice(1).join('\n\n');
       } else {
         response.shortAnswer = cleanResponse;
@@ -97,32 +111,34 @@ const preprocessChatResponse = (rawResponse) => {
     } else {
       // Extract remaining content as reasoning
       let remainingContent = cleanResponse;
-      
+
       // Remove short answer section
       if (shortAnswerMatch) {
-        remainingContent = remainingContent.replace(shortAnswerMatch[0], '').trim();
+        remainingContent = remainingContent
+          .replace(shortAnswerMatch[0], '')
+          .trim();
       }
-      
+
       // Remove sections
       if (sectionMatches) {
-        sectionMatches.forEach(section => {
+        sectionMatches.forEach((section) => {
           remainingContent = remainingContent.replace(section, '').trim();
         });
       }
-      
+
       // Remove tables
       if (tableMatches) {
-        tableMatches.forEach(table => {
+        tableMatches.forEach((table) => {
           remainingContent = remainingContent.replace(table, '').trim();
         });
       }
-      
+
       // Clean up separators and extra whitespace
       remainingContent = remainingContent
         .replace(/---+/g, '')
         .replace(/\n\s*\n\s*\n/g, '\n\n')
         .trim();
-      
+
       if (remainingContent) {
         response.reasoning = remainingContent;
       }
@@ -138,7 +154,10 @@ const preprocessChatResponse = (rawResponse) => {
   } catch (error) {
     // Fallback to simple format
     return {
-      shortAnswer: rawResponse.length > 200 ? rawResponse.substring(0, 200) + '...' : rawResponse,
+      shortAnswer:
+        rawResponse.length > 200
+          ? `${rawResponse.substring(0, 200)}...`
+          : rawResponse,
       reasoning: rawResponse.length > 200 ? rawResponse : null,
       sections: [],
       tables: [],

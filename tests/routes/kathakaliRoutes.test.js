@@ -24,7 +24,7 @@ describe('POST /', () => {
   beforeEach(() => {
     app = express();
     app.use(kathakaliRoutes);
-    kathakaliController.classifyCharacter.mockImplementation((req, res, next) =>
+    kathakaliController.classifyCharacter.mockImplementation((req, res) =>
       res.sendStatus(200),
     );
   });
@@ -42,8 +42,8 @@ describe('POST /classify-expression', () => {
   beforeEach(() => {
     app = express();
     app.use(kathakaliRoutes);
-    kathakaliController.classifyExpression.mockImplementation(
-      (req, res, next) => res.sendStatus(200),
+    kathakaliController.classifyExpression.mockImplementation((req, res) =>
+      res.sendStatus(200),
     );
   });
 

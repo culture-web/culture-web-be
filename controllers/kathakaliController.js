@@ -139,7 +139,8 @@ exports.classifyCharacter = async (req, res) => {
 
 exports.chat = async (req, res) => {
   try {
-    const { query, imageAnalysis, characterData, expressionData } = req.body || {};
+    const { query, imageAnalysis, characterData, expressionData } =
+      req.body || {};
 
     if (!query) {
       console.log('Query missing, returning 400');
@@ -167,11 +168,14 @@ exports.chat = async (req, res) => {
       req.file ||
       (req.files && req.files.find((file) => file.fieldname === 'image'));
     if (imageFile) {
-      let imageContext = 'The user has uploaded an image for Kathakali analysis.';
+      let imageContext =
+        'The user has uploaded an image for Kathakali analysis.';
 
       // Add character information if available
       if (characterData && characterData.length > 0) {
-        const characters = characterDatagi.map(data => data.character || data.predicted_class).filter(Boolean);
+        const characters = characterData
+          .map((data) => data.character || data.predicted_class)
+          .filter(Boolean);
         if (characters.length > 0) {
           imageContext += ` The image contains the following Kathakali character(s): ${characters.join(', ')}.`;
         }
@@ -179,13 +183,16 @@ exports.chat = async (req, res) => {
 
       // Add expression information if available
       if (expressionData && expressionData.length > 0) {
-        const expressions = expressionData.map(data => data.expression || data.predicted_class).filter(Boolean);
+        const expressions = expressionData
+          .map((data) => data.expression || data.predicted_class)
+          .filter(Boolean);
         if (expressions.length > 0) {
           imageContext += ` The detected expression(s) are: ${expressions.join(', ')}.`;
         }
       }
 
-      imageContext += ' Please provide information about these Kathakali elements and respond to the user\'s query in the context of this classical Indian dance form.';
+      imageContext +=
+        " Please provide information about these Kathakali elements and respond to the user's query in the context of this classical Indian dance form.";
 
       if (messages.find((msg) => msg.role === 'system')) {
         messages[0].content += `\n${imageContext}`;
