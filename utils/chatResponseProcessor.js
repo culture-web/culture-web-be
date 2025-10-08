@@ -16,20 +16,53 @@ const preprocessChatResponse = (rawResponse) => {
     const cleanResponse = rawResponse.trim();
 
     // Extract short answer (content before first header or separator)
-    // eslint-disable-next-line no-useless-escape
-    const shortAnswerMatch = cleanResponse.match(
-      /^\*\*([^*]+):\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/,
-    );
+    let shortAnswerMatch = null;
+    const boldHeaderPattern = /^\*\*([^*]+):\*\*/;
+    const boldHeaderMatchResult = cleanResponse.match(boldHeaderPattern);
+
+    if (boldHeaderMatchResult) {
+      const afterHeader = cleanResponse
+        .substring(boldHeaderMatchResult[0].length)
+        .trim();
+      const stopPatterns = ['\n---', '\n###', '\n|', '\n**'];
+      let endIndex = afterHeader.length;
+
+      stopPatterns.forEach((pattern) => {
+        const patternIndex = afterHeader.indexOf(pattern);
+        if (patternIndex !== -1 && patternIndex < endIndex) {
+          endIndex = patternIndex;
+        }
+      });
+
+      shortAnswerMatch = [
+        boldHeaderMatchResult[0],
+        boldHeaderMatchResult[1],
+        afterHeader.substring(0, endIndex).trim(),
+      ];
+    }
     if (shortAnswerMatch) {
-      response.shortAnswer = shortAnswerMatch[2].trim();
+      const [, , shortAnswer] = shortAnswerMatch;
+      response.shortAnswer = shortAnswer;
     } else {
       // Try alternative patterns for bold text
-      // eslint-disable-next-line no-useless-escape
-      const altBoldMatch = cleanResponse.match(
-        /^\*\*([^*]+)\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/,
-      );
-      if (altBoldMatch) {
-        response.shortAnswer = altBoldMatch[2].trim();
+      const altBoldPattern = /^\*\*([^*]+)\*\*/;
+      const altBoldHeaderMatchResult = cleanResponse.match(altBoldPattern);
+
+      if (altBoldHeaderMatchResult) {
+        const afterHeader = cleanResponse
+          .substring(altBoldHeaderMatchResult[0].length)
+          .trim();
+        const stopPatterns = ['\n---', '\n###', '\n|', '\n**'];
+        let endIndex = afterHeader.length;
+
+        stopPatterns.forEach((pattern) => {
+          const patternIndex = afterHeader.indexOf(pattern);
+          if (patternIndex !== -1 && patternIndex < endIndex) {
+            endIndex = patternIndex;
+          }
+        });
+
+        response.shortAnswer = afterHeader.substring(0, endIndex).trim();
       } else {
         // Fallback: use first paragraph or sentence
         const firstParagraph = cleanResponse.split(/\n\s*\n/)[0];
@@ -41,15 +74,34 @@ const preprocessChatResponse = (rawResponse) => {
     }
 
     // Extract sections based on headers (###, ####, etc.)
-    // eslint-disable-next-line no-useless-escape
-    const sectionMatches = cleanResponse.match(
-      /###[^#\n]*(?:\n(?!###)[^\n]*)*(?=\n###|$)/g,
-    );
-    if (sectionMatches) {
+    const sectionMatches = [];
+    const responseLines = cleanResponse.split('\n');
+    let currentSection = null;
+
+    responseLines.forEach((line) => {
+      if (line.startsWith('###')) {
+        // Save previous section if exists
+        if (currentSection) {
+          sectionMatches.push(currentSection.join('\n'));
+        }
+        // Start new section
+        currentSection = [line];
+      } else if (currentSection) {
+        // Add line to current section
+        currentSection.push(line);
+      }
+    });
+
+    // Add the last section if exists
+    if (currentSection) {
+      sectionMatches.push(currentSection.join('\n'));
+    }
+
+    if (sectionMatches.length > 0) {
       response.sections = sectionMatches.map((section) => {
-        const lines = section.split('\n');
-        const title = lines[0].replace(/^#+\s*/, '').trim();
-        const content = lines.slice(1).join('\n').trim();
+        const sectionLines = section.split('\n');
+        const title = sectionLines[0].replace(/^#+\s*/, '').trim();
+        const content = sectionLines.slice(1).join('\n').trim();
         return { title, content };
       });
       response.metadata.hasStructuredContent = true;
