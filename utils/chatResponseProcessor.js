@@ -108,11 +108,41 @@ const preprocessChatResponse = (rawResponse) => {
     }
 
     // Extract tables
-    // eslint-disable-next-line no-useless-escape
-    const tableMatches = cleanResponse.match(
-      /\|[^\n]*\|(?:\n\|[^\n]*\|)*(?=\n\s*\n|\n\s*###|$)/g,
-    );
-    if (tableMatches) {
+    const tableMatches = [];
+    const tableLines = cleanResponse.split('\n');
+    let currentTable = [];
+    let inTable = false;
+
+    tableLines.forEach((line, index) => {
+      const isTableLine = line.includes('|') && line.trim().length > 0;
+      const nextLine = tableLines[index + 1];
+      const isEndOfInput = index === tableLines.length - 1;
+      const isEmptyLine = line.trim() === '';
+      const isHeaderLine = nextLine && nextLine.startsWith('###');
+
+      if (isTableLine && !inTable) {
+        // Start of a new table
+        inTable = true;
+        currentTable = [line];
+      } else if (isTableLine && inTable) {
+        // Continue current table
+        currentTable.push(line);
+      } else if (inTable && (isEmptyLine || isHeaderLine || isEndOfInput)) {
+        // End of current table
+        if (currentTable.length > 0) {
+          tableMatches.push(currentTable.join('\n'));
+        }
+        currentTable = [];
+        inTable = false;
+      }
+    });
+
+    // Handle case where table ends at the end of input
+    if (inTable && currentTable.length > 0) {
+      tableMatches.push(currentTable.join('\n'));
+    }
+
+    if (tableMatches.length > 0) {
       response.tables = tableMatches
         .map((tableText, index) => {
           const lines = tableText
