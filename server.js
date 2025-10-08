@@ -16,8 +16,7 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:4173',
-  // Add your production domain here when deploying
-  // 'https://yourdomain.com'
+  'https://kathakali.comp.nus.edu.sg',
 ];
 
 const corsOptions = {
@@ -36,6 +35,10 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// Body parsing middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Add a simple route
 app.get('/api', (req, res) => {

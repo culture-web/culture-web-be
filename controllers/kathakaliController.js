@@ -107,6 +107,10 @@ const classifyImageMultiple = async (req, res, apiEndpoint) => {
 };
 
 exports.classifyExpression = async (req, res) => {
+  if (!req.body) {
+    console.error('req.body is undefined');
+    return res.status(400).json({ error: 'Request body is missing' });
+  }
   const isMultipleRecognition = req.body.isMultipleRecognition === 'true';
   const apiEndpoint = apiConfig.expressionDetectionApi;
   try {
@@ -123,6 +127,10 @@ exports.classifyExpression = async (req, res) => {
 };
 
 exports.classifyCharacter = async (req, res) => {
+  if (!req.body) {
+    console.error('req.body is undefined');
+    return res.status(400).json({ error: 'Request body is missing' });
+  }
   const isMultipleRecognition = req.body.isMultipleRecognition === 'true';
   const apiEndpoint = apiConfig.kathakaliCharacterClassificationApi;
   try {
