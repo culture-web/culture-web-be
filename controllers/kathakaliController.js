@@ -1,12 +1,12 @@
 /* eslint-disable node/no-unsupported-features/es-syntax */
 const axios = require('axios');
 const FormData = require('form-data');
+const huggingFaceClient = require('../client/huggingfaceClient');
 const apiConfig = require('../apiconfig/apiConfig');
+const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
 
 // Helper function to classify based on the endpoint for single image
 const classifyImageSingle = async (req, res, apiEndpoint) => {
-  console.log(process.env);
-
   try {
     // Check if file is provided
     if (!req.file) {
@@ -133,6 +133,97 @@ exports.classifyCharacter = async (req, res) => {
     return await classifyImageMultiple(req, res, apiEndpoint);
   } catch (error) {
     console.log('Error uploading image to microservice:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+exports.chat = async (req, res) => {
+  try {
+    const { query, imageAnalysis, characterData, expressionData } =
+      req.body || {};
+
+    if (!query) {
+      console.log('Query missing, returning 400');
+      return res.status(400).json({ error: 'Query is required' });
+    }
+
+    const client = huggingFaceClient.getInstance();
+
+    const messages = [
+      {
+        role: 'user',
+        content: query,
+      },
+    ];
+
+    if (imageAnalysis) {
+      messages.unshift({
+        role: 'system',
+        content: `Context from image analysis: ${imageAnalysis}`,
+      });
+    }
+
+    // Handle uploaded image file if present
+    const imageFile =
+      req.file ||
+      (req.files && req.files.find((file) => file.fieldname === 'image'));
+    if (imageFile) {
+      let imageContext =
+        'The user has uploaded an image for Kathakali analysis.';
+
+      // Add character information if available
+      if (characterData && characterData.length > 0) {
+        const characters = characterData
+          .map((data) => data.character || data.predicted_class)
+          .filter(Boolean);
+        if (characters.length > 0) {
+          imageContext += ` The image contains the following Kathakali character(s): ${characters.join(', ')}.`;
+        }
+      }
+
+      // Add expression information if available
+      if (expressionData && expressionData.length > 0) {
+        const expressions = expressionData
+          .map((data) => data.expression || data.predicted_class)
+          .filter(Boolean);
+        if (expressions.length > 0) {
+          imageContext += ` The detected expression(s) are: ${expressions.join(', ')}.`;
+        }
+      }
+
+      imageContext +=
+        " Please provide information about these Kathakali elements and respond to the user's query in the context of this classical Indian dance form.";
+
+      if (messages.find((msg) => msg.role === 'system')) {
+        messages[0].content += `\n${imageContext}`;
+      } else {
+        messages.unshift({
+          role: 'system',
+          content: imageContext,
+        });
+      }
+    }
+
+    const chatCompletion = await client.chatCompletion({
+      provider: 'together',
+      model: 'openai/gpt-oss-120b',
+      messages: messages,
+    });
+
+    const responseMessage = chatCompletion.choices[0].message.content;
+
+    const chatbotResponse = preprocessChatResponse(responseMessage);
+
+    return res.status(200).json(chatbotResponse);
+  } catch (error) {
+    console.log('Error in chat:', error);
+
+    if (error.message && error.message.includes('token')) {
+      return res
+        .status(401)
+        .json({ error: 'Invalid or missing Hugging Face token' });
+    }
+
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
