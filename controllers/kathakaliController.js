@@ -3,11 +3,10 @@ const axios = require('axios');
 const FormData = require('form-data');
 const huggingFaceClient = require('../client/huggingfaceClient');
 const apiConfig = require('../apiconfig/apiConfig');
+const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
 
 // Helper function to classify based on the endpoint for single image
 const classifyImageSingle = async (req, res, apiEndpoint) => {
-  console.log(process.env);
-
   try {
     // Check if file is provided
     if (!req.file) {
@@ -140,7 +139,7 @@ exports.classifyCharacter = async (req, res) => {
 
 exports.chat = async (req, res) => {
   try {
-    const { query, imageAnalysis } = req.body || {};
+    const { query, imageAnalysis, characterData, expressionData } = req.body || {};
 
     if (!query) {
       console.log('Query missing, returning 400');
@@ -168,8 +167,26 @@ exports.chat = async (req, res) => {
       req.file ||
       (req.files && req.files.find((file) => file.fieldname === 'image'));
     if (imageFile) {
-      // Add image context to the system message
-      const imageContext = `User has uploaded an image: ${imageFile.originalname}`;
+      let imageContext = 'The user has uploaded an image for Kathakali analysis.';
+      
+      // Add character information if available
+      if (characterData && characterData.length > 0) {
+        const characters = characterData.map(data => data.character || data.predicted_class).filter(Boolean);
+        if (characters.length > 0) {
+          imageContext += ` The image contains the following Kathakali character(s): ${characters.join(', ')}.`;
+        }
+      }
+      
+      // Add expression information if available
+      if (expressionData && expressionData.length > 0) {
+        const expressions = expressionData.map(data => data.expression || data.predicted_class).filter(Boolean);
+        if (expressions.length > 0) {
+          imageContext += ` The detected expression(s) are: ${expressions.join(', ')}.`;
+        }
+      }
+      
+      imageContext += ' Please provide information about these Kathakali elements and respond to the user\'s query in the context of this classical Indian dance form.';
+      
       if (messages.find((msg) => msg.role === 'system')) {
         messages[0].content += `\n${imageContext}`;
       } else {
@@ -180,8 +197,6 @@ exports.chat = async (req, res) => {
       }
     }
 
-    console.log('Sending messages to Hugging Face:', messages);
-
     const chatCompletion = await client.chatCompletion({
       provider: 'together',
       model: 'openai/gpt-oss-120b',
@@ -189,9 +204,10 @@ exports.chat = async (req, res) => {
     });
 
     const responseMessage = chatCompletion.choices[0].message.content;
-
-    console.log('Received response from Hugging Face:', responseMessage);
-    return res.status(200).json({ response: responseMessage });
+    
+    const chatbotResponse = preprocessChatResponse(responseMessage);
+    
+    return res.status(200).json(chatbotResponse);
   } catch (error) {
     console.log('Error in chat:', error);
 
