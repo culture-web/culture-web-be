@@ -171,7 +171,7 @@ exports.chat = async (req, res) => {
 
       // Add character information if available
       if (characterData && characterData.length > 0) {
-        const characters = characterData.map(data => data.character || data.predicted_class).filter(Boolean);
+        const characters = characterDatagi.map(data => data.character || data.predicted_class).filter(Boolean);
         if (characters.length > 0) {
           imageContext += ` The image contains the following Kathakali character(s): ${characters.join(', ')}.`;
         }
