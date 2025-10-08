@@ -168,7 +168,7 @@ exports.chat = async (req, res) => {
       (req.files && req.files.find((file) => file.fieldname === 'image'));
     if (imageFile) {
       let imageContext = 'The user has uploaded an image for Kathakali analysis.';
-      
+
       // Add character information if available
       if (characterData && characterData.length > 0) {
         const characters = characterData.map(data => data.character || data.predicted_class).filter(Boolean);
@@ -176,7 +176,7 @@ exports.chat = async (req, res) => {
           imageContext += ` The image contains the following Kathakali character(s): ${characters.join(', ')}.`;
         }
       }
-      
+
       // Add expression information if available
       if (expressionData && expressionData.length > 0) {
         const expressions = expressionData.map(data => data.expression || data.predicted_class).filter(Boolean);
@@ -184,9 +184,9 @@ exports.chat = async (req, res) => {
           imageContext += ` The detected expression(s) are: ${expressions.join(', ')}.`;
         }
       }
-      
+
       imageContext += ' Please provide information about these Kathakali elements and respond to the user\'s query in the context of this classical Indian dance form.';
-      
+
       if (messages.find((msg) => msg.role === 'system')) {
         messages[0].content += `\n${imageContext}`;
       } else {
@@ -204,9 +204,9 @@ exports.chat = async (req, res) => {
     });
 
     const responseMessage = chatCompletion.choices[0].message.content;
-    
+
     const chatbotResponse = preprocessChatResponse(responseMessage);
-    
+
     return res.status(200).json(chatbotResponse);
   } catch (error) {
     console.log('Error in chat:', error);

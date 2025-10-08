@@ -16,13 +16,13 @@ const preprocessChatResponse = (rawResponse) => {
     const cleanResponse = rawResponse.trim();
 
     // Extract short answer (content before first header or separator)
-    const shortAnswerMatch = cleanResponse.match(/^\*\*([^*]+):\*\*\s*([\s\S]*?)(?=\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*|$)/);
+    const shortAnswerMatch = cleanResponse.match(/^\*\*([^*]+):\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/);
     
     if (shortAnswerMatch) {
       response.shortAnswer = shortAnswerMatch[2].trim();
     } else {
       // Try alternative patterns for bold text
-      const altBoldMatch = cleanResponse.match(/^\*\*([^*]+)\*\*\s*([\s\S]*?)(?=\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*|$)/);
+      const altBoldMatch = cleanResponse.match(/^\*\*([^*]+)\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/);
       
       if (altBoldMatch) {
         response.shortAnswer = altBoldMatch[2].trim();
@@ -36,7 +36,7 @@ const preprocessChatResponse = (rawResponse) => {
     }
 
     // Extract sections based on headers (###, ####, etc.)
-    const sectionMatches = cleanResponse.match(/###[^#].*?(?=\n###|$)/gs);
+    const sectionMatches = cleanResponse.match(/###[^#\n]*(?:\n(?!###)[^\n]*)*(?=\n###|$)/g);
     if (sectionMatches) {
       response.sections = sectionMatches.map((section) => {
         const lines = section.split('\n');
@@ -48,7 +48,7 @@ const preprocessChatResponse = (rawResponse) => {
     }
 
     // Extract tables
-    const tableMatches = cleanResponse.match(/\|.*\|[\s\S]*?(?=\n\s*\n|\n\s*###|$)/g);
+    const tableMatches = cleanResponse.match(/\|[^\n]*\|(?:\n\|[^\n]*\|)*(?=\n\s*\n|\n\s*###|$)/g);
     if (tableMatches) {
       response.tables = tableMatches.map((tableText, index) => {
         const lines = tableText.trim().split('\n').filter(line => line.includes('|'));
