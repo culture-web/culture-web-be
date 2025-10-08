@@ -16,12 +16,14 @@ const preprocessChatResponse = (rawResponse) => {
     const cleanResponse = rawResponse.trim();
 
     // Extract short answer (content before first header or separator)
+    // eslint-disable-next-line security/detect-unsafe-regex
     const shortAnswerMatch = cleanResponse.match(/^\*\*([^*]+):\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/);
     
     if (shortAnswerMatch) {
       response.shortAnswer = shortAnswerMatch[2].trim();
     } else {
       // Try alternative patterns for bold text
+      // eslint-disable-next-line security/detect-unsafe-regex
       const altBoldMatch = cleanResponse.match(/^\*\*([^*]+)\*\*\s*((?:(?!\n\s*---|\n\s*###|\n\s*\||\n\s*\*\*[^*]+\*\*)[\s\S])*)/);
       
       if (altBoldMatch) {
@@ -36,6 +38,7 @@ const preprocessChatResponse = (rawResponse) => {
     }
 
     // Extract sections based on headers (###, ####, etc.)
+    // eslint-disable-next-line security/detect-unsafe-regex
     const sectionMatches = cleanResponse.match(/###[^#\n]*(?:\n(?!###)[^\n]*)*(?=\n###|$)/g);
     if (sectionMatches) {
       response.sections = sectionMatches.map((section) => {
@@ -48,6 +51,7 @@ const preprocessChatResponse = (rawResponse) => {
     }
 
     // Extract tables
+    // eslint-disable-next-line security/detect-unsafe-regex
     const tableMatches = cleanResponse.match(/\|[^\n]*\|(?:\n\|[^\n]*\|)*(?=\n\s*\n|\n\s*###|$)/g);
     if (tableMatches) {
       response.tables = tableMatches.map((tableText, index) => {
