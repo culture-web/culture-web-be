@@ -1,4 +1,4 @@
-// server.js (Example using Service Role Key for a secure connection)
+// supabaseClient.js (Example using Service Role Key for a secure connection)
 const { createClient } = require('@supabase/supabase-js');
 
 // Get environment variables
