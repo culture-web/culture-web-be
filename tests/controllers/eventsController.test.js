@@ -56,7 +56,7 @@ describe('getEvents Controller', () => {
     } else {
       calculatedTotal = 0;
     }
-    mockCountQuery.total = calculatedTotal;
+    mockCountQuery.count = calculatedTotal;
     mockCountQuery.error = countError;
   };
 
