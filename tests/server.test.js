@@ -1,4 +1,17 @@
 const request = require('supertest');
+
+jest.mock('../client/supabaseClient', () => ({
+  from: jest.fn(() => ({
+    select: jest.fn(() => ({
+      order: jest.fn(() => ({
+        range: jest.fn(() => ({
+          gte: jest.fn(),
+        })),
+      })),
+    })),
+  })),
+}));
+
 const app = require('../server');
 
 describe('GET /api', () => {
