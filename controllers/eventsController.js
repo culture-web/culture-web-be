@@ -24,24 +24,34 @@ const getEvents = async (req, res) => {
       });
     }
 
+    // Build the data query with pagination
     let query = supabase
       .from('events')
       .select('*')
       .order('start_time', { ascending: true })
       .range(parsedOffset, parsedOffset + parsedLimit - 1);
 
+    let countQuery = supabase
+      .from('events')
+      .select('*', { count: 'exact', head: true });
+
     if (upcoming === 'true' || upcoming === '1') {
       const currentDateTime = new Date().toISOString();
       query = query.gte('start_time', currentDateTime);
+      countQuery = countQuery.gte('start_time', currentDateTime);
     }
 
-    const { data, error } = await query;
+    const [{ data, error }, { count, error: countQueryError }] =
+      await Promise.all([query, countQuery]);
 
-    if (error) {
-      console.error('Error fetching events from Supabase:', error);
+    if (error || countQueryError) {
+      console.error(
+        'Error fetching events from Supabase:',
+        error || countQueryError,
+      );
       return res.status(500).json({
         error: 'Failed to fetch events',
-        details: error.message,
+        details: (error || countQueryError).message,
       });
     }
 
@@ -51,7 +61,7 @@ const getEvents = async (req, res) => {
       pagination: {
         limit: parsedLimit,
         offset: parsedOffset,
-        count: data.length,
+        total: count,
       },
     });
   } catch (error) {

@@ -10,6 +10,7 @@ jest.mock('../../client/supabaseClient', () => ({
           gte: jest.fn(),
         })),
       })),
+      gte: jest.fn(),
     })),
   })),
 }));
@@ -19,7 +20,8 @@ const supabase = require('../../client/supabaseClient');
 describe('getEvents Controller', () => {
   let req;
   let res;
-  let mockQuery;
+  let mockDataQuery;
+  let mockCountQuery;
 
   // Helper function to create mock event data variants
   const createEventVariant = (id, title, overrides = {}) => {
@@ -38,9 +40,24 @@ describe('getEvents Controller', () => {
   };
 
   // Helper functions
-  const setupMockResponse = (data, error = null) => {
-    mockQuery.data = data;
-    mockQuery.error = error;
+  const setupMockResponse = (
+    data,
+    total = null,
+    error = null,
+    countError = null,
+  ) => {
+    mockDataQuery.data = data;
+    mockDataQuery.error = error;
+    let calculatedTotal;
+    if (total !== null) {
+      calculatedTotal = total;
+    } else if (data) {
+      calculatedTotal = data.length;
+    } else {
+      calculatedTotal = 0;
+    }
+    mockCountQuery.total = calculatedTotal;
+    mockCountQuery.error = countError;
   };
 
   const expectError = (statusCode, errorMessage) => {
@@ -62,14 +79,35 @@ describe('getEvents Controller', () => {
     res = httpMocks.createResponse();
     jest.clearAllMocks();
 
-    mockQuery = { gte: jest.fn().mockReturnThis() };
-    supabase.from.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        order: jest.fn().mockReturnValue({
-          range: jest.fn().mockReturnValue(mockQuery),
-        }),
-      }),
+    // Create separate mock objects for data query and count query
+    mockDataQuery = { gte: jest.fn().mockReturnThis() };
+    mockCountQuery = { gte: jest.fn().mockReturnThis() };
+
+    // Create mock functions for the chain
+    const mockRange = jest.fn().mockReturnValue(mockDataQuery);
+    const mockOrder = jest.fn().mockReturnValue({
+      range: mockRange,
     });
+    const mockSelect = jest.fn((columns, options) => {
+      if (options && options.count === 'exact' && options.head === true) {
+        // This is the count query
+        return mockCountQuery;
+      }
+      // This is the data query
+      return {
+        order: mockOrder,
+      };
+    });
+
+    // Mock supabase with trackable methods
+    supabase.from.mockReturnValue({
+      select: mockSelect,
+    });
+
+    // Attach the mock functions so tests can access them
+    supabase.from().select = mockSelect;
+    supabase.from().select().order = mockOrder;
+    supabase.from().select().order().range = mockRange;
   });
 
   describe('Parameter Validation', () => {
@@ -110,21 +148,21 @@ describe('getEvents Controller', () => {
   describe('Successful Requests', () => {
     it('should return events with default parameters', async () => {
       const mockData = [createEventVariant(1, 'Test Event')];
-      setupMockResponse(mockData);
+      setupMockResponse(mockData, 5); // 5 total events
 
       await getEvents(req, res);
 
-      expectSuccess(mockData, { limit: 50, offset: 0, count: 1 });
+      expectSuccess(mockData, { limit: 50, offset: 0, total: 5 });
     });
 
     it('should return events with custom limit and offset', async () => {
       req.query = { limit: '10', offset: '5' };
       const mockData = [createEventVariant(6, 'Event 6')];
-      setupMockResponse(mockData);
+      setupMockResponse(mockData, 20); // 20 total events
 
       await getEvents(req, res);
 
-      expectSuccess(mockData, { limit: 10, offset: 5, count: 1 });
+      expectSuccess(mockData, { limit: 10, offset: 5, total: 20 });
       expect(supabase.from().select().order().range).toHaveBeenCalledWith(
         5,
         14,
@@ -134,46 +172,55 @@ describe('getEvents Controller', () => {
     it('should filter upcoming events when upcoming=true', async () => {
       req.query = { upcoming: 'true' };
       const mockData = [createEventVariant(2, 'Future Event')];
-      setupMockResponse(mockData);
+      setupMockResponse(mockData, 3); // 3 total upcoming events
 
       await getEvents(req, res);
 
-      expect(mockQuery.gte).toHaveBeenCalledWith(
+      expect(mockDataQuery.gte).toHaveBeenCalledWith(
         'start_time',
         expect.any(String),
       );
-      expectSuccess(mockData, { limit: 50, offset: 0, count: 1 });
+      expect(mockCountQuery.gte).toHaveBeenCalledWith(
+        'start_time',
+        expect.any(String),
+      );
+      expectSuccess(mockData, { limit: 50, offset: 0, total: 3 });
     });
 
     it('should filter upcoming events when upcoming=1', async () => {
       req.query = { upcoming: '1' };
-      setupMockResponse([]);
+      setupMockResponse([], 0); // 0 total upcoming events
 
       await getEvents(req, res);
 
-      expect(mockQuery.gte).toHaveBeenCalledWith(
+      expect(mockDataQuery.gte).toHaveBeenCalledWith(
         'start_time',
         expect.any(String),
       );
-      expectSuccess([], { limit: 50, offset: 0, count: 0 });
+      expect(mockCountQuery.gte).toHaveBeenCalledWith(
+        'start_time',
+        expect.any(String),
+      );
+      expectSuccess([], { limit: 50, offset: 0, total: 0 });
     });
 
     it('should not filter when upcoming is false', async () => {
       req.query = { upcoming: 'false' };
       const mockData = [createEventVariant(3, 'All Events')];
-      setupMockResponse(mockData);
+      setupMockResponse(mockData, 10); // 10 total events
 
       await getEvents(req, res);
 
-      expect(mockQuery.gte).not.toHaveBeenCalled();
-      expectSuccess(mockData, { limit: 50, offset: 0, count: 1 });
+      expect(mockDataQuery.gte).not.toHaveBeenCalled();
+      expect(mockCountQuery.gte).not.toHaveBeenCalled();
+      expectSuccess(mockData, { limit: 50, offset: 0, total: 10 });
     });
   });
 
   describe('Error Handling', () => {
     it('should return 500 when Supabase returns an error', async () => {
       const mockError = { message: 'Database connection failed' };
-      setupMockResponse(null, mockError);
+      setupMockResponse(null, null, mockError);
 
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
@@ -188,6 +235,23 @@ describe('getEvents Controller', () => {
         'Error fetching events from Supabase:',
         mockError,
       );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should return 500 when count query returns an error', async () => {
+      const mockCountError = { message: 'Count query failed' };
+      setupMockResponse([], null, null, mockCountError);
+
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      await getEvents(req, res);
+
+      expect(res.statusCode).toBe(500);
+      expect(res._getJSONData()).toEqual({
+        error: 'Failed to fetch events',
+        details: 'Count query failed',
+      });
 
       consoleSpy.mockRestore();
     });
@@ -214,12 +278,16 @@ describe('getEvents Controller', () => {
   describe('Query Building', () => {
     it('should build correct query chain', async () => {
       req.query = { limit: '20', offset: '10', upcoming: 'true' };
-      setupMockResponse([]);
+      setupMockResponse([], 0);
 
       await getEvents(req, res);
 
       expect(supabase.from).toHaveBeenCalledWith('events');
       expect(supabase.from().select).toHaveBeenCalledWith('*');
+      expect(supabase.from().select).toHaveBeenCalledWith('*', {
+        count: 'exact',
+        head: true,
+      });
       expect(supabase.from().select().order).toHaveBeenCalledWith(
         'start_time',
         { ascending: true },
@@ -228,7 +296,11 @@ describe('getEvents Controller', () => {
         10,
         29,
       );
-      expect(mockQuery.gte).toHaveBeenCalledWith(
+      expect(mockDataQuery.gte).toHaveBeenCalledWith(
+        'start_time',
+        expect.any(String),
+      );
+      expect(mockCountQuery.gte).toHaveBeenCalledWith(
         'start_time',
         expect.any(String),
       );
