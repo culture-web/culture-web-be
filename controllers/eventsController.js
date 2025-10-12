@@ -47,7 +47,7 @@ const getEvents = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: data,
+      data,
       pagination: {
         limit: parsedLimit,
         offset: parsedOffset,
