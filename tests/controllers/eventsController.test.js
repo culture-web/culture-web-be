@@ -1,7 +1,6 @@
 const httpMocks = require('node-mocks-http');
 const { getEvents } = require('../../controllers/eventsController');
 
-// Mock the supabase client
 jest.mock('../../client/supabaseClient', () => ({
   from: jest.fn(() => ({
     select: jest.fn(() => ({
@@ -23,7 +22,6 @@ describe('getEvents Controller', () => {
   let mockDataQuery;
   let mockCountQuery;
 
-  // Helper function to create mock event data variants
   const createEventVariant = (id, title, overrides = {}) => {
     const baseEvent = {
       id: id,
@@ -39,7 +37,6 @@ describe('getEvents Controller', () => {
     return baseEvent;
   };
 
-  // Helper functions
   const setupMockResponse = (
     data,
     total = null,
@@ -79,32 +76,26 @@ describe('getEvents Controller', () => {
     res = httpMocks.createResponse();
     jest.clearAllMocks();
 
-    // Create separate mock objects for data query and count query
     mockDataQuery = { gte: jest.fn().mockReturnThis() };
     mockCountQuery = { gte: jest.fn().mockReturnThis() };
 
-    // Create mock functions for the chain
     const mockRange = jest.fn().mockReturnValue(mockDataQuery);
     const mockOrder = jest.fn().mockReturnValue({
       range: mockRange,
     });
     const mockSelect = jest.fn((columns, options) => {
       if (options && options.count === 'exact' && options.head === true) {
-        // This is the count query
         return mockCountQuery;
       }
-      // This is the data query
       return {
         order: mockOrder,
       };
     });
 
-    // Mock supabase with trackable methods
     supabase.from.mockReturnValue({
       select: mockSelect,
     });
 
-    // Attach the mock functions so tests can access them
     supabase.from().select = mockSelect;
     supabase.from().select().order = mockOrder;
     supabase.from().select().order().range = mockRange;
