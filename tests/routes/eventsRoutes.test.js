@@ -4,6 +4,7 @@ const eventsController = require('../../controllers/eventsController');
 const eventsRoutes = require('../../routes/eventsRoutes');
 
 jest.mock('../../controllers/eventsController');
+jest.mock('../../entities/eventScraperJob');
 jest.mock('../../client/supabaseClient', () => ({
   from: jest.fn(() => ({
     select: jest.fn(() => ({
@@ -159,14 +160,56 @@ describe('Events Routes', () => {
     });
   });
 
+  describe('POST /scrape', () => {
+    it('should call eventsController.scrapeEvents and return success', async () => {
+      eventsController.scrapeEvents.mockImplementation((req, res) =>
+        res.status(200).json({
+          success: true,
+          message: 'Event scraping completed',
+          results: { totalScraped: 5, totalInserted: 3, totalUpdated: 2 },
+        }),
+      );
+
+      const res = await request(app).post('/scrape');
+
+      expect(res.statusCode).toBe(200);
+      expect(eventsController.scrapeEvents).toHaveBeenCalled();
+      expect(res.body).toEqual({
+        success: true,
+        message: 'Event scraping completed',
+        results: { totalScraped: 5, totalInserted: 3, totalUpdated: 2 },
+      });
+    });
+
+    it('should handle errors from the scraping job', async () => {
+      eventsController.scrapeEvents.mockImplementation((req, res) =>
+        res.status(500).json({
+          success: false,
+          error: 'Failed to execute event scraping job',
+          details: 'Scraper error',
+        }),
+      );
+
+      const res = await request(app).post('/scrape');
+
+      expect(res.statusCode).toBe(500);
+      expect(eventsController.scrapeEvents).toHaveBeenCalled();
+      expect(res.body).toEqual({
+        success: false,
+        error: 'Failed to execute event scraping job',
+        details: 'Scraper error',
+      });
+    });
+  });
+
   describe('Route not found', () => {
     it('should return 404 for non-existent routes', async () => {
       const res = await request(app).get('/nonexistent');
       expect(res.statusCode).toBe(404);
     });
 
-    it('should return 404 for POST requests', async () => {
-      const res = await request(app).post('/');
+    it('should return 404 for POST requests to non-existent routes', async () => {
+      const res = await request(app).post('/nonexistent');
       expect(res.statusCode).toBe(404);
     });
 

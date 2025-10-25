@@ -1,4 +1,5 @@
 const supabase = require('../client/supabaseClient');
+const EventScraperJob = require('../entities/eventScraperJob');
 
 /**
  * Get all events with optional filtering and pagination
@@ -73,6 +74,37 @@ const getEvents = async (req, res) => {
   }
 };
 
+/**
+ * Trigger the event scraping job
+ * This endpoint is designed to be called by automated systems (e.g., GitHub Actions)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+const scrapeEvents = async (req, res) => {
+  try {
+    console.log('Event scraping job triggered');
+
+    // Create and execute the scraper job
+    const scraperJob = new EventScraperJob();
+    const results = await scraperJob.execute();
+
+    // Return the results
+    return res.status(200).json({
+      success: true,
+      message: 'Event scraping completed',
+      results,
+    });
+  } catch (error) {
+    console.error('Error in scrapeEvents controller:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to execute event scraping job',
+      details: error.message,
+    });
+  }
+};
+
 module.exports = {
   getEvents,
+  scrapeEvents,
 };

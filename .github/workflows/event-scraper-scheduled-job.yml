@@ -1,0 +1,46 @@
+name: Event Scraper (Every 3 Days)
+
+on:
+  schedule:
+    # Run at 9:00 AM UTC on every 3rd day of the month (e.g., 3rd, 6th, 9th...)
+    - cron: '0 9 */3 * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  scrape-events:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Trigger event scraping endpoint
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+        run: |
+          echo "Triggering event scraping job..."
+          
+          response=$(curl -X POST \
+            -H "Content-Type: application/json" \
+            -w "\n%{http_code}" \
+            -s \
+            "${BACKEND_BASE_URL}/api/events/scrape")
+          
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          
+          echo "Response status: $http_code"
+          echo "Response body: $body"
+          
+          if [ "$http_code" -ne 200 ]; then
+            echo "Error: Scraping job failed with status $http_code"
+            exit 1
+          fi
+          
+          echo "Event scraping completed successfully!"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Event scraping job failed. Please check the logs above."
+          echo "You may want to set up additional notifications (e.g., Slack, email) here."
