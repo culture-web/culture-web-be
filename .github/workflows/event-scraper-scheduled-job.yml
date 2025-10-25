@@ -1,9 +1,9 @@
-name: Daily Event Scraper
+name: Event Scraper (Every 3 Days)
 
 on:
   schedule:
-    # Run daily at 9:00 AM UTC (5:00 PM Singapore Time)
-    - cron: '0 9 * * *'
+    # Run at 9:00 AM UTC on every 3rd day of the month (e.g., 3rd, 6th, 9th...)
+    - cron: '0 9 */3 * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
 
       - name: Trigger event scraping endpoint
         env:
-          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
         run: |
           echo "Triggering event scraping job..."
           
@@ -24,7 +24,7 @@ jobs:
             -H "Content-Type: application/json" \
             -w "\n%{http_code}" \
             -s \
-            "${API_BASE_URL}/api/events/scrape")
+            "${BACKEND_BASE_URL}/api/events/scrape")
           
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
