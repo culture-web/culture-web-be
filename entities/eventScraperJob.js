@@ -35,7 +35,8 @@ class EventScraperJob {
       `Starting event scraper job with ${this.scrapers.length} scraper(s)`,
     );
 
-    for (const scraper of this.scrapers) {
+    await this.scrapers.reduce(async (promise, scraper) => {
+      await promise;
       try {
         await this.processScraper(scraper);
       } catch (error) {
@@ -48,7 +49,7 @@ class EventScraperJob {
           error: error.message,
         });
       }
-    }
+    }, Promise.resolve());
 
     console.log('Event scraper job completed:', this.results);
     return this.results;
@@ -74,7 +75,8 @@ class EventScraperJob {
     );
 
     // Process each event
-    for (const event of scrapedEvents) {
+    await scrapedEvents.reduce(async (promise, event) => {
+      await promise;
       try {
         await this.upsertEvent(event);
       } catch (error) {
@@ -85,7 +87,7 @@ class EventScraperJob {
           error: error.message,
         });
       }
-    }
+    }, Promise.resolve());
   }
 
   /**
