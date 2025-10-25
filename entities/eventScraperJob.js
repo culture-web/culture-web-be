@@ -1,5 +1,5 @@
-const supabase = require('../../client/supabaseClient');
-const BhaskarsArtsAcademyScraper = require('../scrapers/bhaskarsArtsAcademyScraper');
+const supabase = require('../client/supabaseClient');
+const BhaskarsArtsAcademyScraper = require('../services/events/scrapers/bhaskarsArtsAcademyScraper');
 
 /**
  * Event Scraper Job
@@ -114,6 +114,7 @@ class EventScraperJob {
           start_time: event.start_time,
           end_time: event.end_time,
           location: event.location,
+          scraped_at: new Date().toISOString(),
         })
         .eq('id', existingEvents[0].id);
 
@@ -132,6 +133,7 @@ class EventScraperJob {
         end_time: event.end_time,
         location: event.location,
         url: event.url,
+        scraped_at: new Date().toISOString(),
       });
 
       if (insertError) {

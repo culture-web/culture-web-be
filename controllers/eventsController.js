@@ -1,5 +1,5 @@
 const supabase = require('../client/supabaseClient');
-const EventScraperJob = require('../services/jobs/eventScraperJob');
+const EventScraperJob = require('../entities/eventScraperJob');
 
 /**
  * Get all events with optional filtering and pagination

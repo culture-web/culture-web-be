@@ -1,11 +1,12 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const chrono = require('chrono-node');
-const huggingFaceClient = require('../../client/huggingfaceClient');
+const huggingFaceClient = require('../../../client/huggingfaceClient');
 /**
  * Scraper for Bhaskar's Arts Academy website
  * Implements a standard scraper interface that can be extended to other sources
  */
+
 class BhaskarsArtsAcademyScraper {
   constructor() {
     this.baseUrl = 'https://www.bhaskarsartsacademy.com';
@@ -50,19 +51,12 @@ class BhaskarsArtsAcademyScraper {
         )
         .trim();
 
-      // Extract dates from the content
-      const dateMatches = response.data.match(
-        /(\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4})/gi,
-      );
-      const timeMatches = response.data.match(
-        /(\d{1,2}[:.]\d{2}\s*(?:am|pm))/gi,
-      );
+      // Extract dates from the content (will use chrono-node fallback parsing)
 
       // Parse start and end times
       let startTime = null;
       let endTime = null;
 
-      // Extract location/venue: prefer prompt-based HF LLM extraction, fallback to compromise+Fuse
       const location = await this.extractVenueFromText(description);
       // If date/time not found, use chrono to parse free-text dates from description
       if (!startTime && description) {
@@ -92,10 +86,6 @@ class BhaskarsArtsAcademyScraper {
           ).toISOString();
         }
       }
-
-      // Extract event ID from URL (not currently used)
-      // const eventIdMatch = eventUrl.match(/id=(\d+)/);
-      // const externalId = eventIdMatch ? eventIdMatch[1] : null;
 
       return {
         title: title || 'Untitled Event',
@@ -199,7 +189,7 @@ class BhaskarsArtsAcademyScraper {
       const client = huggingFaceClient.getInstance();
       const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
 
-      const prompt = `Analyze the following text and extract the full name of the place that the event will be held at, only if available. Return the result as a JSON object with the key \"full_address\". If no address is present, return an empty JSON object {}.\n\nText:\n${decoded}`;
+      const prompt = `Analyze the following text and extract the full name of the place that the event will be held at, only if available. Return the result as a JSON object with the key "full_address". If no address is present, return an empty JSON object {}.\n\nText:\n${decoded}`;
 
       const messages = [
         {
@@ -223,8 +213,6 @@ class BhaskarsArtsAcademyScraper {
 
       const textOut = chatCompletion?.choices?.[0]?.message?.content;
       if (!textOut) return null;
-
-      console.log('HF chat output for address extraction:', textOut);
 
       const jsonMatch = textOut.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return null;
@@ -255,34 +243,35 @@ class BhaskarsArtsAcademyScraper {
     }
   }
 
-  /**
-   * Scrapes multiple events from an array of event objects
-   * @param {Array} events - Array of {url, date} objects
-   * @returns {Promise<Object[]>} Array of parsed event objects
-   */
   async scrapeMultipleEvents(events) {
     const results = [];
 
-    for (const eventInfo of events) {
-      try {
-        const event = await this.scrapeEventDetails(eventInfo.url, eventInfo.date);
-        results.push(event);
+    const sleep = (ms) =>
+      new Promise((resolve) => {
+        setTimeout(() => resolve(), ms);
+      });
 
-        // Add a small delay between requests to be respectful
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      } catch (error) {
-        console.error(`Failed to scrape ${eventInfo.url}:`, error.message);
-        // Continue with other URLs even if one fails
-      }
-    }
+    await events.reduce(
+      (promiseChain, eventInfo) =>
+        promiseChain.then(async () => {
+          try {
+            const event = await this.scrapeEventDetails(
+              eventInfo.url,
+              eventInfo.date,
+            );
+            results.push(event);
+
+            await sleep(1000);
+          } catch (error) {
+            console.error(`Failed to scrape ${eventInfo.url}:`, error.message);
+          }
+        }),
+      Promise.resolve(),
+    );
 
     return results;
   }
 
-  /**
-   * Scrapes the events listing page to get all event URLs with their dates
-   * @returns {Promise<Array>} Array of objects with {url, date}
-   */
   async scrapeEventListingPage() {
     try {
       console.log('Scraping events listing page...');
@@ -329,7 +318,6 @@ class BhaskarsArtsAcademyScraper {
         }
       });
 
-      // Remove duplicates based on URL
       const uniqueEvents = events.filter(
         (event, index, self) =>
           index === self.findIndex((e) => e.url === event.url),
@@ -343,14 +331,8 @@ class BhaskarsArtsAcademyScraper {
     }
   }
 
-  /**
-   * Get the default event URLs to scrape
-   * Scrapes the events listing page to discover all events
-   * @returns {Promise<string[]>} Array of event URLs
-   */
   async getDefaultEventUrls() {
-    // Scrape the listing page to get all event URLs
-    return await this.scrapeEventListingPage();
+    return this.scrapeEventListingPage();
   }
 }
 
