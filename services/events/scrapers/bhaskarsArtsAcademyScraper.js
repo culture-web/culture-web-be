@@ -9,7 +9,8 @@ const huggingFaceClient = require('../../../client/huggingfaceClient');
 
 class BhaskarsArtsAcademyScraper {
   constructor() {
-    this.baseUrl = 'https://www.bhaskarsartsacademy.com';
+    this.baseUrl =
+      process.env.BHASKARS_BASE_URL || 'https://www.bhaskarsartsacademy.com';
     this.sourceName = 'Bhaskars Arts Academy';
   }
 
