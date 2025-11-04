@@ -1,3 +1,20 @@
+process.env.SUPABASE_URL = 'https://test.supabase.co';
+process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+process.env.HF_TOKEN = 'test-hf-token';
+
+// Mock @xenova/transformers to avoid ES module issues
+jest.mock('@xenova/transformers', () => ({
+  pipeline: jest.fn(() =>
+    Promise.resolve({
+      encode: jest.fn(() => Promise.resolve([0.1, 0.2, 0.3])), // Mock embedding vector
+    }),
+  ),
+  env: {
+    allowLocalModels: false,
+    allowRemoteModels: true,
+  },
+}));
+
 const axios = require('axios');
 const httpMocks = require('node-mocks-http');
 const {
