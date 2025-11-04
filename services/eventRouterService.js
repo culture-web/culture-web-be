@@ -4,7 +4,7 @@ const huggingFaceClient = require('../client/huggingfaceClient');
  * Event Router Service
  * Uses LLM to extract structured event search parameters from user queries
  */
-class EventRouter {
+class EventRouterService {
   /**
    * Parse user query and extract event search parameters using LLM
    * @param {string} query - User query text
@@ -99,6 +99,6 @@ Important: Default to "upcoming" for date_filter unless the query explicitly men
 }
 
 // Create singleton instance
-const eventRouter = new EventRouter();
+const eventRouter = new EventRouterService();
 
 module.exports = eventRouter;

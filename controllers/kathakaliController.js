@@ -5,7 +5,7 @@ const huggingFaceClient = require('../client/huggingfaceClient');
 const supabase = require('../client/supabaseClient');
 const apiConfig = require('../apiconfig/apiConfig');
 const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
-const eventRouter = require('../services/eventRouter');
+const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
 
 // Helper function to classify based on the endpoint for single image
@@ -168,7 +168,7 @@ exports.chat = async (req, res) => {
     ];
 
     // RAG: Parse query to extract event search parameters
-    const eventParams = await eventRouter.parseEventQuery(query);
+    const eventParams = await eventRouterService.parseEventQuery(query);
     console.log('Event query parameters:', eventParams);
 
     // If event-related, perform vector search and add context

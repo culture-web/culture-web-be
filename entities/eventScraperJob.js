@@ -1,5 +1,5 @@
 const supabase = require('../client/supabaseClient');
-const BhaskarsArtsAcademyScraper = require('../services/events/scrapers/bhaskarsArtsAcademyScraper');
+const BhaskarsArtsAcademyScraperService = require('../services/events/scrapers/bhaskarsArtsAcademyScraperService');
 const embeddingService = require('../services/embeddingService');
 
 /**
@@ -9,7 +9,7 @@ const embeddingService = require('../services/embeddingService');
  */
 class EventScraperJob {
   constructor() {
-    this.scrapers = [new BhaskarsArtsAcademyScraper()];
+    this.scrapers = [new BhaskarsArtsAcademyScraperService()];
     this.results = {
       totalScraped: 0,
       totalInserted: 0,
