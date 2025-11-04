@@ -33,11 +33,11 @@ jobs:
           echo "Response body: $body"
           
           if [ "$http_code" -ne 200 ]; then
-            echo "Error: Scraping job failed with status $http_code"
+            echo "Error: Failed to start scraping job with status $http_code"
             exit 1
           fi
           
-          echo "Event scraping completed successfully!"
+          echo "Event scraping job started successfully!"
 
       - name: Notify on failure
         if: failure()
