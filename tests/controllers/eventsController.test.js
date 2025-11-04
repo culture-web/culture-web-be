@@ -1,6 +1,19 @@
 const httpMocks = require('node-mocks-http');
 const { getEvents } = require('../../controllers/eventsController');
 
+// Mock @xenova/transformers to avoid ES module issues
+jest.mock('@xenova/transformers', () => ({
+  pipeline: jest.fn(() =>
+    Promise.resolve({
+      encode: jest.fn(() => Promise.resolve([0.1, 0.2, 0.3])), // Mock embedding vector
+    }),
+  ),
+  env: {
+    allowLocalModels: false,
+    allowRemoteModels: true,
+  },
+}));
+
 jest.mock('../../client/supabaseClient', () => ({
   from: jest.fn(() => ({
     select: jest.fn(() => ({

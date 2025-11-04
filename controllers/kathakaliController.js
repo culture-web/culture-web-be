@@ -2,8 +2,11 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const huggingFaceClient = require('../client/huggingfaceClient');
+const supabase = require('../client/supabaseClient');
 const apiConfig = require('../apiconfig/apiConfig');
 const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
+const eventRouterService = require('../services/eventRouterService');
+const embeddingService = require('../services/embeddingService');
 
 // Helper function to classify based on the endpoint for single image
 const classifyImageSingle = async (req, res, apiEndpoint) => {
@@ -164,11 +167,149 @@ exports.chat = async (req, res) => {
       },
     ];
 
+    // RAG: Parse query to extract event search parameters
+    const eventParams = await eventRouterService.parseEventQuery(query);
+    console.log('Event query parameters:', eventParams);
+
+    // If event-related, perform vector search and add context
+    if (eventParams) {
+      try {
+        let similarEvents = [];
+
+        console.log(
+          `Event query detected - Topic: "${eventParams.semantic_query}", Time: ${eventParams.date_filter}, Venue: ${eventParams.venue || 'any'}`,
+        );
+
+        // Determine if we should search upcoming or past events
+        const searchUpcomingOnly = eventParams.date_filter !== 'past';
+        const searchAllEvents = eventParams.date_filter === 'all';
+
+        similarEvents = await embeddingService.searchSimilarEvents(
+          supabase,
+          eventParams.semantic_query, // Use extracted semantic query
+          10, // Get more results
+          searchUpcomingOnly && !searchAllEvents, // Filter based on LLM's date_filter
+          0.3, // Lower threshold for better recall
+        );
+
+        console.log(
+          `Semantic search found ${similarEvents.length} event(s) with similarity > 0.3`,
+        );
+
+        if (eventParams.venue && similarEvents.length > 0) {
+          const venueLower = eventParams.venue.toLowerCase();
+          similarEvents = similarEvents.filter((event) =>
+            event.location?.toLowerCase().includes(venueLower),
+          );
+          console.log(
+            `After venue filter (${eventParams.venue}): ${similarEvents.length} event(s)`,
+          );
+        }
+
+        if (similarEvents.length === 0) {
+          console.log(
+            'No events found via semantic search - fetching events as fallback',
+          );
+
+          const currentDateTime = new Date().toISOString();
+          let fetchQuery = supabase.from('events').select('*').limit(10);
+
+          if (eventParams.venue) {
+            fetchQuery = fetchQuery.ilike('location', `%${eventParams.venue}%`);
+          }
+
+          if (searchUpcomingOnly && !searchAllEvents) {
+            // Fetch upcoming events
+            fetchQuery = fetchQuery
+              .gte('start_time', currentDateTime)
+              .order('start_time', { ascending: true });
+          } else if (!searchAllEvents) {
+            // Fetch past events
+            fetchQuery = fetchQuery
+              .lt('start_time', currentDateTime)
+              .order('start_time', { ascending: false });
+          } else {
+            // Fetch all events
+            fetchQuery = fetchQuery.order('start_time', { ascending: false });
+          }
+
+          const { data: events, error } = await fetchQuery;
+
+          if (error) {
+            console.error('Error fetching events:', error);
+          } else {
+            similarEvents = events || [];
+            let timeFilter = 'past';
+            if (searchAllEvents) {
+              timeFilter = 'all';
+            } else if (searchUpcomingOnly) {
+              timeFilter = 'upcoming';
+            }
+            const venueInfo = eventParams.venue
+              ? ` at ${eventParams.venue}`
+              : '';
+            console.log(
+              `Fallback: Found ${similarEvents.length} ${timeFilter} events${venueInfo}`,
+            );
+          }
+        }
+
+        if (similarEvents && similarEvents.length > 0) {
+          console.log(
+            `Found ${similarEvents.length} relevant event(s) for RAG`,
+          );
+
+          // Format events for context
+          const eventsContext = similarEvents
+            .map((event, index) => {
+              const startDate = new Date(event.start_time);
+              const endDate = event.end_time ? new Date(event.end_time) : null;
+
+              return `
+Event ${index + 1}:
+- Title: ${event.title}
+- Description: ${event.description || 'No description available'}
+- Start Time: ${startDate.toLocaleString()}
+${endDate ? `- End Time: ${endDate.toLocaleString()}` : ''}
+- Location: ${event.location || 'Location not specified'}
+- URL: ${event.url || 'No URL available'}
+`;
+            })
+            .join('\n');
+
+          const eventSystemMessage = `You are a helpful assistant for a cultural chatbot. The user is asking about cultural events. Here are the relevant upcoming events from our database:
+
+${eventsContext}
+
+Please use this information to answer the user's question accurately. If the user asks about upcoming events, refer to these events. Be helpful and provide details from the events listed above.`;
+
+          messages.unshift({
+            role: 'system',
+            content: eventSystemMessage,
+          });
+        } else {
+          console.log('No relevant events found for this query');
+          messages.unshift({
+            role: 'system',
+            content:
+              'You are a helpful assistant for a cultural chatbot. The user is asking about events, but there are no upcoming events matching their query at this time. Please inform them politely.',
+          });
+        }
+      } catch (eventError) {
+        console.error('Error fetching events for RAG:', eventError);
+        // Continue with normal chat if event search fails
+      }
+    }
+
     if (imageAnalysis) {
-      messages.unshift({
-        role: 'system',
-        content: `Context from image analysis: ${imageAnalysis}`,
-      });
+      if (messages.find((msg) => msg.role === 'system')) {
+        messages[0].content += `\n\nContext from image analysis: ${imageAnalysis}`;
+      } else {
+        messages.unshift({
+          role: 'system',
+          content: `Context from image analysis: ${imageAnalysis}`,
+        });
+      }
     }
 
     // Handle uploaded image file if present

@@ -3,6 +3,18 @@ const express = require('express');
 const eventsController = require('../../controllers/eventsController');
 const eventsRoutes = require('../../routes/eventsRoutes');
 
+jest.mock('@xenova/transformers', () => ({
+  pipeline: jest.fn(() =>
+    Promise.resolve({
+      encode: jest.fn(() => Promise.resolve([0.1, 0.2, 0.3])), // Mock embedding vector
+    }),
+  ),
+  env: {
+    allowLocalModels: false,
+    allowRemoteModels: true,
+  },
+}));
+
 jest.mock('../../controllers/eventsController');
 jest.mock('../../entities/eventScraperJob');
 jest.mock('../../client/supabaseClient', () => ({

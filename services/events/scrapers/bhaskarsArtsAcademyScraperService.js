@@ -7,7 +7,7 @@ const huggingFaceClient = require('../../../client/huggingfaceClient');
  * Implements a standard scraper interface that can be extended to other sources
  */
 
-class BhaskarsArtsAcademyScraper {
+class BhaskarsArtsAcademyScraperService {
   constructor() {
     this.baseUrl =
       process.env.BHASKARS_BASE_URL || 'https://www.bhaskarsartsacademy.com';
@@ -337,4 +337,4 @@ class BhaskarsArtsAcademyScraper {
   }
 }
 
-module.exports = BhaskarsArtsAcademyScraper;
+module.exports = BhaskarsArtsAcademyScraperService;

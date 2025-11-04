@@ -1,5 +1,6 @@
 const supabase = require('../client/supabaseClient');
-const BhaskarsArtsAcademyScraper = require('../services/events/scrapers/bhaskarsArtsAcademyScraper');
+const BhaskarsArtsAcademyScraperService = require('../services/events/scrapers/bhaskarsArtsAcademyScraperService');
+const embeddingService = require('../services/embeddingService');
 
 /**
  * Event Scraper Job
@@ -8,7 +9,7 @@ const BhaskarsArtsAcademyScraper = require('../services/events/scrapers/bhaskars
  */
 class EventScraperJob {
   constructor() {
-    this.scrapers = [new BhaskarsArtsAcademyScraper()];
+    this.scrapers = [new BhaskarsArtsAcademyScraperService()];
     this.results = {
       totalScraped: 0,
       totalInserted: 0,
@@ -106,6 +107,18 @@ class EventScraperJob {
       throw new Error(`Failed to check existing event: ${fetchError.message}`);
     }
 
+    // Generate embedding for the event
+    let embedding;
+    try {
+      embedding = await embeddingService.generateEventEmbedding(event);
+    } catch (embeddingError) {
+      console.warn(
+        `Warning: Failed to generate embedding for event ${event.title}:`,
+        embeddingError.message,
+      );
+      embedding = null; // Continue without embedding
+    }
+
     if (existingEvents && existingEvents.length > 0) {
       // Update existing event
       const { error: updateError } = await supabase
@@ -116,6 +129,7 @@ class EventScraperJob {
           start_time: event.start_time,
           end_time: event.end_time,
           location: event.location,
+          embedding,
           scraped_at: new Date().toISOString(),
         })
         .eq('id', existingEvents[0].id);
@@ -135,6 +149,7 @@ class EventScraperJob {
         end_time: event.end_time,
         location: event.location,
         url: event.url,
+        embedding,
         scraped_at: new Date().toISOString(),
       });
 
