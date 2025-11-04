@@ -64,7 +64,6 @@ async function backfillEmbeddings() {
   console.log('Starting embedding backfill process...\n');
 
   try {
-    // Fetch all events without embeddings
     console.log('Fetching events without embeddings...');
     const { data: events, error } = await supabase
       .from('events')
@@ -82,7 +81,6 @@ async function backfillEmbeddings() {
 
     console.log(`Found ${events.length} event(s) without embeddings\n`);
 
-    // Process events in batches
     const totalBatches = Math.ceil(events.length / BATCH_SIZE);
     const overallResults = {
       success: 0,
@@ -110,7 +108,6 @@ async function backfillEmbeddings() {
       );
     }
 
-    // Print summary
     console.log(`\n${'='.repeat(50)}`);
     console.log('BACKFILL COMPLETE');
     console.log('='.repeat(50));
@@ -132,7 +129,6 @@ async function backfillEmbeddings() {
   }
 }
 
-// Run the backfill
 backfillEmbeddings()
   .then(() => {
     console.log('\nBackfill process completed successfully');
