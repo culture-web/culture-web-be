@@ -167,48 +167,46 @@ exports.chat = async (req, res) => {
       },
     ];
 
-    // RAG: Check if query is event-related
-    const isEventQuery = await eventRouter.isEventRelatedQuery(query);
-    console.log(`Query is event-related: ${isEventQuery}`);
+    // RAG: Parse query to extract event search parameters
+    const eventParams = await eventRouter.parseEventQuery(query);
+    console.log('Event query parameters:', eventParams);
 
     // If event-related, perform vector search and add context
-    if (isEventQuery) {
+    if (eventParams) {
       try {
         let similarEvents = [];
 
-        console.log('Event query detected - performing semantic search...');
-
-        // Detect temporal intent: past, present, or future events
-        const queryLower = query.toLowerCase();
-        const isPastQuery =
-          queryLower.includes('happened') ||
-          queryLower.includes('took place') ||
-          queryLower.includes('had') ||
-          queryLower.includes('previous') ||
-          queryLower.includes('past') ||
-          queryLower.includes('before') ||
-          queryLower.includes('already') ||
-          queryLower.includes('were there');
-
-        // Default to upcoming unless explicitly asking about past
-        const searchUpcomingOnly = !isPastQuery;
-
         console.log(
-          `Temporal intent - Past query: ${isPastQuery}, Upcoming only: ${searchUpcomingOnly}`,
+          `Event query detected - Topic: "${eventParams.semantic_query}", Time: ${eventParams.date_filter}, Venue: ${eventParams.venue || 'any'}`,
         );
 
-        // Try semantic search with appropriate temporal filter
+        // Determine if we should search upcoming or past events
+        const searchUpcomingOnly = eventParams.date_filter !== 'past';
+        const searchAllEvents = eventParams.date_filter === 'all';
+
+        // Try semantic search with LLM-extracted parameters
         similarEvents = await embeddingService.searchSimilarEvents(
           supabase,
-          query,
+          eventParams.semantic_query, // Use extracted semantic query
           10, // Get more results
-          searchUpcomingOnly, // Filter based on temporal intent
+          searchUpcomingOnly && !searchAllEvents, // Filter based on LLM's date_filter
           0.3, // Lower threshold for better recall
         );
 
         console.log(
           `Semantic search found ${similarEvents.length} event(s) with similarity > 0.3`,
         );
+
+        // Apply venue filter if specified
+        if (eventParams.venue && similarEvents.length > 0) {
+          const venueLower = eventParams.venue.toLowerCase();
+          similarEvents = similarEvents.filter((event) =>
+            event.location?.toLowerCase().includes(venueLower),
+          );
+          console.log(
+            `After venue filter (${eventParams.venue}): ${similarEvents.length} event(s)`,
+          );
+        }
 
         // If semantic search returns no results, fall back to fetching events
         if (similarEvents.length === 0) {
@@ -219,16 +217,24 @@ exports.chat = async (req, res) => {
           const currentDateTime = new Date().toISOString();
           let fetchQuery = supabase.from('events').select('*').limit(10);
 
-          if (searchUpcomingOnly) {
+          // Apply venue filter if specified
+          if (eventParams.venue) {
+            fetchQuery = fetchQuery.ilike('location', `%${eventParams.venue}%`);
+          }
+
+          if (searchUpcomingOnly && !searchAllEvents) {
             // Fetch upcoming events
             fetchQuery = fetchQuery
               .gte('start_time', currentDateTime)
               .order('start_time', { ascending: true });
-          } else {
+          } else if (!searchAllEvents) {
             // Fetch past events
             fetchQuery = fetchQuery
               .lt('start_time', currentDateTime)
               .order('start_time', { ascending: false });
+          } else {
+            // Fetch all events
+            fetchQuery = fetchQuery.order('start_time', { ascending: false });
           }
 
           const { data: events, error } = await fetchQuery;
@@ -237,8 +243,17 @@ exports.chat = async (req, res) => {
             console.error('Error fetching events:', error);
           } else {
             similarEvents = events || [];
+            let timeFilter = 'past';
+            if (searchAllEvents) {
+              timeFilter = 'all';
+            } else if (searchUpcomingOnly) {
+              timeFilter = 'upcoming';
+            }
+            const venueInfo = eventParams.venue
+              ? ` at ${eventParams.venue}`
+              : '';
             console.log(
-              `Fallback: Found ${similarEvents.length} ${searchUpcomingOnly ? 'upcoming' : 'past'} events`,
+              `Fallback: Found ${similarEvents.length} ${timeFilter} events${venueInfo}`,
             );
           }
         }

@@ -2,75 +2,20 @@ const huggingFaceClient = require('../client/huggingfaceClient');
 
 /**
  * Event Router Service
- * Determines if a user query is about cultural events using LLM classification
+ * Uses LLM to extract structured event search parameters from user queries
  */
 class EventRouter {
   /**
-   * Determine if a query is event-related
+   * Parse user query and extract event search parameters using LLM
    * @param {string} query - User query text
-   * @returns {Promise<boolean>} - True if query is event-related, false otherwise
+   * @returns {Promise<Object|null>} - Event search parameters or null if not event-related
+   * @returns {string} return.semantic_query - Topic to search for
+   * @returns {string} return.date_filter - 'upcoming', 'past', or 'all'
+   * @returns {string} return.venue - Optional venue filter
    */
-  async isEventRelatedQuery(query) {
+  async parseEventQuery(query) {
     try {
-      // First, use keyword-based detection for common patterns
-      const eventKeywords = [
-        'event',
-        'show',
-        'performance',
-        'happening',
-        'upcoming',
-        'schedule',
-        'when is',
-        'what is on',
-        'whats on',
-        'calendar',
-        'today',
-        'tomorrow',
-        'this week',
-        'this month',
-        'next week',
-        'next month',
-      ];
-
-      const queryLower = query.toLowerCase();
-      const hasEventKeyword = eventKeywords.some((keyword) =>
-        queryLower.includes(keyword),
-      );
-
-      // Keywords that indicate NON-event queries
-      const nonEventKeywords = [
-        'what is',
-        'explain',
-        'tell me about',
-        'describe',
-        'meaning',
-        'represent',
-        'mudra',
-        'costume',
-        'history',
-        'tradition',
-      ];
-
-      const hasNonEventKeyword = nonEventKeywords.some((keyword) =>
-        queryLower.includes(keyword),
-      );
-
-      // If it has event keywords and no non-event keywords, likely event-related
-      if (hasEventKeyword && !hasNonEventKeyword) {
-        console.log('Event router: Classified as event query (keyword match)');
-        return true;
-      }
-
-      // If it has non-event keywords, likely not event-related
-      if (hasNonEventKeyword && !hasEventKeyword) {
-        console.log(
-          'Event router: Classified as non-event query (keyword match)',
-        );
-        return false;
-      }
-
-      // For ambiguous cases, use LLM classification
-      console.log('Event router: Using LLM for classification...');
+      console.log('Event router: Parsing query with LLM...');
       const client = huggingFaceClient.getInstance();
 
       const response = await client.chatCompletion({
@@ -79,37 +24,90 @@ class EventRouter {
         messages: [
           {
             role: 'system',
-            content: `You are a binary classifier. Determine if the user is asking about EVENTS (performances, shows, schedules, what's happening) or INFORMATION (definitions, explanations, cultural knowledge).
+            content: `You are a query parser for a cultural events database. Analyze the user's query and determine:
 
-EVENTS examples: "what events", "upcoming shows", "performances this week", "schedule"
-INFORMATION examples: "what is", "explain", "tell me about", "history of"
+1. Is this an EVENT query (about performances, shows, schedules) or an INFORMATIONAL query (about definitions, history, culture)?
 
-Respond with exactly one word: EVENT or INFO`,
+2. If it's an EVENT query, extract:
+   - semantic_query: The topic/theme (e.g., "kathakali performances", "dance shows", "all events")
+   - date_filter: "upcoming" (future events), "past" (already happened), or "all" (no time filter)
+   - venue: Specific location if mentioned (e.g., "Esplanade Theatre", "Victoria Theatre")
+
+Respond with ONLY a valid JSON object in this format:
+{"is_event_query": true/false, "semantic_query": "...", "date_filter": "upcoming/past/all", "venue": "..." or null}
+
+Examples:
+Query: "What are upcoming events?" 
+Response: {"is_event_query": true, "semantic_query": "all cultural events", "date_filter": "upcoming", "venue": null}
+
+Query: "What kathakali performances happened before?"
+Response: {"is_event_query": true, "semantic_query": "kathakali performances", "date_filter": "past", "venue": null}
+
+Query: "Shows about Bhima at the Esplanade?"
+Response: {"is_event_query": true, "semantic_query": "shows about Bhima", "date_filter": "upcoming", "venue": "Esplanade Theatre"}
+
+Query: "What is kathakali?"
+Response: {"is_event_query": false, "semantic_query": null, "date_filter": null, "venue": null}
+
+Important: Default to "upcoming" for date_filter unless the query explicitly mentions past tense or history.`,
           },
           {
             role: 'user',
             content: query,
           },
         ],
-        max_tokens: 5,
+        max_tokens: 150,
         temperature: 0.1,
       });
 
-      const answer = response.choices[0].message.content.trim().toUpperCase();
+      const answer = response.choices[0].message.content.trim();
       console.log(`Event router: LLM response: "${answer}"`);
 
-      // Check if the answer contains "EVENT"
-      const isEventQuery = answer.includes('EVENT');
-      console.log(
-        `Event router: Final classification: ${isEventQuery ? 'EVENT' : 'NON-EVENT'}`,
-      );
+      // Parse the JSON response
+      let parsedResponse;
+      try {
+        // Extract JSON from response (handle cases where LLM adds extra text)
+        const jsonMatch = answer.match(/\{[^}]+\}/);
+        if (!jsonMatch) {
+          throw new Error('No JSON found in response');
+        }
+        parsedResponse = JSON.parse(jsonMatch[0]);
+      } catch (parseError) {
+        console.error(
+          'Event router: Failed to parse LLM response:',
+          parseError,
+        );
+        return null;
+      }
 
-      return isEventQuery;
+      // Validate the response structure
+      if (!parsedResponse.is_event_query) {
+        console.log('Event router: Not an event query');
+        return null;
+      }
+
+      // Return structured event parameters
+      const eventParams = {
+        semantic_query: parsedResponse.semantic_query || query,
+        date_filter: parsedResponse.date_filter || 'upcoming',
+        venue: parsedResponse.venue || null,
+      };
+
+      console.log('Event router: Extracted parameters:', eventParams);
+      return eventParams;
     } catch (error) {
-      console.error('Error in event router classification:', error);
-      // Default to false (non-event query) on error
-      return false;
+      console.error('Event router: Error parsing query:', error);
+      return null;
     }
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   * @deprecated Use parseEventQuery instead
+   */
+  async isEventRelatedQuery(query) {
+    const params = await this.parseEventQuery(query);
+    return params !== null;
   }
 }
 
