@@ -77,28 +77,38 @@ const getEvents = async (req, res) => {
 /**
  * Trigger the event scraping job
  * This endpoint is designed to be called by automated systems (e.g., GitHub Actions)
+ * Runs asynchronously to avoid timeout issues
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
 const scrapeEvents = async (req, res) => {
   try {
-    console.log('Event scraping job triggered');
+    console.log('Event scraping job triggered - starting asynchronously');
 
-    // Create and execute the scraper job
+    // Start the scraper job in the background
     const scraperJob = new EventScraperJob();
-    const results = await scraperJob.execute();
 
-    // Return the results
+    // Run the job asynchronously without awaiting
+    scraperJob
+      .execute()
+      .then((results) => {
+        console.log('Event scraping job completed successfully:', results);
+      })
+      .catch((error) => {
+        console.error('Event scraping job failed:', error);
+      });
+
+    // Return immediate success response
     return res.status(200).json({
       success: true,
-      message: 'Event scraping completed',
-      results,
+      message: 'Event scraping job started successfully',
+      note: 'Job is running asynchronously in the background',
     });
   } catch (error) {
-    console.error('Error in scrapeEvents controller:', error);
+    console.error('Error starting scrapeEvents job:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to execute event scraping job',
+      error: 'Failed to start event scraping job',
       details: error.message,
     });
   }
