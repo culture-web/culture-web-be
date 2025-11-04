@@ -63,10 +63,8 @@ Important: Default to "upcoming" for date_filter unless the query explicitly men
       const answer = response.choices[0].message.content.trim();
       console.log(`Event router: LLM response: "${answer}"`);
 
-      // Parse the JSON response
       let parsedResponse;
       try {
-        // Extract JSON from response (handle cases where LLM adds extra text)
         const jsonMatch = answer.match(/\{[^}]+\}/);
         if (!jsonMatch) {
           throw new Error('No JSON found in response');
@@ -80,13 +78,11 @@ Important: Default to "upcoming" for date_filter unless the query explicitly men
         return null;
       }
 
-      // Validate the response structure
       if (!parsedResponse.is_event_query) {
         console.log('Event router: Not an event query');
         return null;
       }
 
-      // Return structured event parameters
       const eventParams = {
         semantic_query: parsedResponse.semantic_query || query,
         date_filter: parsedResponse.date_filter || 'upcoming',
@@ -99,15 +95,6 @@ Important: Default to "upcoming" for date_filter unless the query explicitly men
       console.error('Event router: Error parsing query:', error);
       return null;
     }
-  }
-
-  /**
-   * Legacy method for backward compatibility
-   * @deprecated Use parseEventQuery instead
-   */
-  async isEventRelatedQuery(query) {
-    const params = await this.parseEventQuery(query);
-    return params !== null;
   }
 }
 

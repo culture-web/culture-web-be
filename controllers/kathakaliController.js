@@ -184,7 +184,6 @@ exports.chat = async (req, res) => {
         const searchUpcomingOnly = eventParams.date_filter !== 'past';
         const searchAllEvents = eventParams.date_filter === 'all';
 
-        // Try semantic search with LLM-extracted parameters
         similarEvents = await embeddingService.searchSimilarEvents(
           supabase,
           eventParams.semantic_query, // Use extracted semantic query
@@ -197,7 +196,6 @@ exports.chat = async (req, res) => {
           `Semantic search found ${similarEvents.length} event(s) with similarity > 0.3`,
         );
 
-        // Apply venue filter if specified
         if (eventParams.venue && similarEvents.length > 0) {
           const venueLower = eventParams.venue.toLowerCase();
           similarEvents = similarEvents.filter((event) =>
@@ -208,7 +206,6 @@ exports.chat = async (req, res) => {
           );
         }
 
-        // If semantic search returns no results, fall back to fetching events
         if (similarEvents.length === 0) {
           console.log(
             'No events found via semantic search - fetching events as fallback',
@@ -217,7 +214,6 @@ exports.chat = async (req, res) => {
           const currentDateTime = new Date().toISOString();
           let fetchQuery = supabase.from('events').select('*').limit(10);
 
-          // Apply venue filter if specified
           if (eventParams.venue) {
             fetchQuery = fetchQuery.ilike('location', `%${eventParams.venue}%`);
           }
@@ -281,7 +277,6 @@ ${endDate ? `- End Time: ${endDate.toLocaleString()}` : ''}
             })
             .join('\n');
 
-          // Add events context to the system message
           const eventSystemMessage = `You are a helpful assistant for a cultural chatbot. The user is asking about cultural events. Here are the relevant upcoming events from our database:
 
 ${eventsContext}
@@ -294,7 +289,6 @@ Please use this information to answer the user's question accurately. If the use
           });
         } else {
           console.log('No relevant events found for this query');
-          // Still add a system message indicating no events found
           messages.unshift({
             role: 'system',
             content:
