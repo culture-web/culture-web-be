@@ -84,7 +84,7 @@ async function backfillEmbeddings() {
 
     // Process events in batches
     const totalBatches = Math.ceil(events.length / BATCH_SIZE);
-    let overallResults = {
+    const overallResults = {
       success: 0,
       failed: 0,
       errors: [],
@@ -99,6 +99,7 @@ async function backfillEmbeddings() {
         `\nProcessing batch ${i + 1}/${totalBatches} (${batch.length} events)...`,
       );
 
+      // eslint-disable-next-line no-await-in-loop
       const batchResults = await processBatch(batch);
       overallResults.success += batchResults.success;
       overallResults.failed += batchResults.failed;
@@ -110,7 +111,7 @@ async function backfillEmbeddings() {
     }
 
     // Print summary
-    console.log('\n' + '='.repeat(50));
+    console.log(`\n${'='.repeat(50)}`);
     console.log('BACKFILL COMPLETE');
     console.log('='.repeat(50));
     console.log(`Total events processed: ${events.length}`);

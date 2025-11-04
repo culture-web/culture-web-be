@@ -18,10 +18,7 @@ class EmbeddingService {
   async initialize() {
     if (!this.embedder) {
       console.log('Loading embedding model:', this.modelName);
-      this.embedder = await pipeline(
-        'feature-extraction',
-        this.modelName,
-      );
+      this.embedder = await pipeline('feature-extraction', this.modelName);
       console.log('Embedding model loaded successfully');
     }
     return this.embedder;
@@ -34,7 +31,7 @@ class EmbeddingService {
    */
   async generateEmbedding(text) {
     await this.initialize();
-    
+
     if (!text || text.trim().length === 0) {
       throw new Error('Text cannot be empty');
     }
@@ -55,26 +52,31 @@ class EmbeddingService {
    * @returns {Promise<Array<number>>} - 384-dimensional embedding vector
    */
   async generateEventEmbedding(event) {
-    const { title, description, start_time, end_time } = event;
-    
+    const {
+      title,
+      description,
+      start_time: startTime,
+      end_time: endTime,
+    } = event;
+
     // Create a rich text representation of the event
     let eventText = '';
-    
+
     if (title) {
       eventText += `Event: ${title}\n`;
     }
-    
+
     if (description) {
       eventText += `Description: ${description}\n`;
     }
-    
-    if (start_time) {
-      const startDate = new Date(start_time);
+
+    if (startTime) {
+      const startDate = new Date(startTime);
       eventText += `Starts: ${startDate.toLocaleString()}\n`;
     }
-    
-    if (end_time) {
-      const endDate = new Date(end_time);
+
+    if (endTime) {
+      const endDate = new Date(endTime);
       eventText += `Ends: ${endDate.toLocaleString()}\n`;
     }
 
