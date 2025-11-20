@@ -1,5 +1,3 @@
-const { pipeline } = require('@xenova/transformers');
-
 /**
  * Embedding Service
  * Handles text embedding generation and vector similarity search
@@ -18,6 +16,9 @@ class EmbeddingService {
   async initialize() {
     if (!this.embedder) {
       console.log('Loading embedding model:', this.modelName);
+      // eslint-disable-next-line node/no-unsupported-features/es-syntax
+      const { pipeline } = await import('@xenova/transformers');
+
       this.embedder = await pipeline('feature-extraction', this.modelName);
       console.log('Embedding model loaded successfully');
     }
