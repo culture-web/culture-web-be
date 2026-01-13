@@ -3,6 +3,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const huggingFaceClient = require('../client/huggingfaceClient');
 const supabase = require('../client/supabaseClient');
+const localDb = require('../client/localDbClient');
 const apiConfig = require('../apiconfig/apiConfig');
 const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
 const eventRouterService = require('../services/eventRouterService');
@@ -353,9 +354,11 @@ Please use this information to answer the user's question accurately. If the use
       }
     }
 
+    const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
+    const provider = process.env.HF_CHAT_PROVIDER || 'together';
     const chatCompletion = await client.chatCompletion({
-      provider: 'together',
-      model: 'openai/gpt-oss-120b',
+      provider,
+      model,
       messages: messages,
     });
 
@@ -374,5 +377,307 @@ Please use this information to answer the user's question accurately. If the use
     }
 
     return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+exports.chatMudras = async (req, res) => {
+  try {
+    const { query, imageAnalysis, characterData, expressionData, rerankerStrategy } =
+      req.body || {};
+
+    if (!query) {
+      console.log('Query missing, returning 400');
+      return res.status(400).json({ error: 'Query is required' });
+    }
+
+    const client = huggingFaceClient.getInstance();
+
+    // RAG: Search local knowledge base with two-stage retrieval (vector + reranking)
+    let ragContext = '';
+    let citations = [];
+    try {
+      // Use provided strategy or default to 'embedding-based'
+      const strategy = rerankerStrategy || 'embedding-based';
+      
+      const similarChunks = await embeddingService.searchLocalKnowledgeBaseWithReranking(
+        localDb,
+        query,
+        10, // Final result limit
+        0.35, // similarity threshold for stage 1
+        true, // Enable reranking
+        strategy, // Pass selected reranking strategy
+      );
+
+      if (similarChunks && similarChunks.length > 0) {
+        console.log(
+          `Local RAG found ${similarChunks.length} relevant chunk(s) (strategy: ${strategy})`,
+        );
+
+        // Build context with smart truncation to avoid token limit
+        const MAX_CONTEXT_LENGTH = 2000; // Approximate token limit to stay safe
+        const ragContextParts = [];
+        let currentContextLength = 0;
+
+        // Take top chunks up to context length limit
+        const selectedChunks = [];
+        for (const chunk of similarChunks) {
+          const pageInfo = chunk.metadata?.page ? ` (Page ${chunk.metadata.page})` : '';
+          const chunkText = `[Source: ${chunk.source_file}${pageInfo}]\n${chunk.content}`;
+          
+          // Estimate tokens (rough: 1 word = 1.3 tokens)
+          const chunkTokens = Math.ceil(chunkText.split(/\s+/).length * 1.3);
+          
+          if (currentContextLength + chunkTokens <= MAX_CONTEXT_LENGTH) {
+            ragContextParts.push(chunkText);
+            selectedChunks.push(chunk);
+            currentContextLength += chunkTokens;
+          } else {
+            break; // Stop adding chunks if we exceed limit
+          }
+        }
+
+        ragContext = ragContextParts.join('\n\n');
+        
+        console.log(`Using ${selectedChunks.length} chunks (context ~${currentContextLength} tokens)`);
+
+        // Build citations array with boost information
+        citations = selectedChunks.map((chunk, index) => ({
+          id: index + 1,
+          source: chunk.source_file,
+          page: chunk.metadata?.page || null,
+          similarity: chunk.base_similarity || chunk.similarity || null,
+          keywordBoost: chunk.keyword_boost || 0,
+          questionBoost: chunk.question_boost || 0,
+          totalScore: chunk.similarity || null,
+          // Add reranking scores if available
+          rerankerScore: chunk.reranker_score || null,
+          originalSimilarity: chunk.original_similarity || null,
+          combinedScore: chunk.combined_score || null,
+        }));
+        
+        // Log boost and reranking information for debugging
+        selectedChunks.forEach((chunk, idx) => {
+          if (chunk.keyword_boost > 0 || chunk.question_boost > 0) {
+            console.log(`Chunk ${idx + 1} boosted - Keyword: ${chunk.keyword_boost}, Question: ${chunk.question_boost}`);
+          }
+        });
+      } else {
+        console.log('No relevant chunks found in local knowledge base');
+      }
+    } catch (ragError) {
+      console.error('Error searching local knowledge base:', ragError);
+      // Continue with query if RAG fails
+    }
+
+    const messages = [
+      {
+        role: 'user',
+        content: query,
+      },
+    ];
+
+    // Build system prompt with RAG context
+    let systemMessage =
+      'You are a knowledgeable assistant about Kathakali and Indian classical dance forms. ';
+
+    if (ragContext) {
+      systemMessage += `Here is relevant information from the knowledge base to help answer the user's question:\n\n${ragContext}\n\nUse this context to provide accurate, cited answers. If the context is insufficient, use your knowledge to supplement.`;
+    } else {
+      systemMessage +=
+        'Help the user with information about Kathakali traditions, characters, expressions, and cultural significance.';
+    }
+
+    // Add image analysis if provided
+    if (imageAnalysis) {
+      systemMessage += `\n\nImage Analysis Context: ${imageAnalysis}`;
+    }
+
+    // Add character and expression info
+    if (characterData && characterData.length > 0) {
+      const characters = characterData
+        .map((data) => data.character || data.predicted_class)
+        .filter(Boolean);
+      if (characters.length > 0) {
+        systemMessage += `\nThe analyzed image contains these Kathakali character(s): ${characters.join(', ')}.`;
+      }
+    }
+
+    if (expressionData && expressionData.length > 0) {
+      const expressions = expressionData
+        .map((data) => data.expression || data.predicted_class)
+        .filter(Boolean);
+      if (expressions.length > 0) {
+        systemMessage += `\nThe detected expression(s) are: ${expressions.join(', ')}.`;
+      }
+    }
+
+    messages.unshift({
+      role: 'system',
+      content: systemMessage,
+    });
+
+    // Estimate total tokens to prevent overflow
+    const estimatedTokens = Math.ceil(
+      (systemMessage.split(/\s+/).length + query.split(/\s+/).length) * 1.3
+    );
+    
+    console.log('=== LLM Request Info ===');
+    console.log(`System Message Length: ${systemMessage.length} chars, ~${Math.ceil(systemMessage.split(/\s+/).length * 1.3)} tokens`);
+    console.log(`Query Length: ${query.length} chars, ~${Math.ceil(query.split(/\s+/).length * 1.3)} tokens`);
+    console.log(`Total Estimated Tokens: ${estimatedTokens}`);
+    console.log(`RAG Context: ${ragContext ? `${Math.ceil(ragContext.split(/\s+/).length * 1.3)} tokens` : 'None'}`);
+    console.log(`Model: ${process.env.HF_CHAT_MODEL || 'aisingapore/Qwen-SEA-LION-v4-32B-IT'}`);
+    console.log(`Provider: ${process.env.HF_CHAT_PROVIDER || 'together'}`);
+    console.log('=======================\n');
+    
+    if (estimatedTokens > 3000) {
+      console.warn(`⚠️  High token count: ${estimatedTokens} - response may be truncated`);
+    }
+
+    // Use the HF_CHAT_MODEL or default model
+    const model = process.env.HF_CHAT_MODEL || 'aisingapore/Qwen-SEA-LION-v4-32B-IT';
+    const provider = process.env.HF_CHAT_PROVIDER || 'together';
+
+    const chatCompletion = await client.chatCompletion({
+      provider,
+      model,
+      messages,
+    });
+
+    const responseMessage = chatCompletion.choices[0].message.content;
+    
+    console.log('=== LLM Response Info ===');
+    console.log(`Response Length: ${responseMessage.length} chars`);
+    console.log(`Response Preview: ${responseMessage.substring(0, 200)}...`);
+    console.log(`Full Response:\n${responseMessage}`);
+    console.log('========================\n');
+    
+    const chatbotResponse = preprocessChatResponse(responseMessage);
+
+    // Add citations to response
+    chatbotResponse.citations = citations;
+
+    return res.status(200).json(chatbotResponse);
+  } catch (error) {
+    console.log('Error in chatMudras:', error);
+
+    if (error.message && error.message.includes('token')) {
+      return res
+        .status(401)
+        .json({ error: 'Invalid or missing Hugging Face token' });
+    }
+
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * Generate quiz questions from chat history
+ * POST /kathakali/generate-quiz-from-chat
+ * Body: { chatHistory: Array<{role, content}>, count: number }
+ */
+exports.generateQuizFromChat = async (req, res) => {
+  try {
+    const { chatHistory, count = 5 } = req.body;
+
+    if (!chatHistory || !Array.isArray(chatHistory) || chatHistory.length === 0) {
+      return res.status(400).json({ error: 'Chat history is required' });
+    }
+
+    const client = huggingFaceClient.getInstance();
+
+    // Extract Q&A pairs from chat history
+    const qaPairs = [];
+    for (let i = 0; i < chatHistory.length; i += 1) {
+      if (chatHistory[i].role === 'user' && i + 1 < chatHistory.length && chatHistory[i + 1].role === 'assistant') {
+        qaPairs.push({
+          question: chatHistory[i].content,
+          answer: chatHistory[i + 1].content,
+        });
+      }
+    }
+
+    if (qaPairs.length === 0) {
+      return res.status(400).json({ error: 'No Q&A pairs found in chat history' });
+    }
+
+    // Build context from Q&A pairs
+    const contextText = qaPairs.map((qa, idx) => 
+      `Q${idx + 1}: ${qa.question}\nA${idx + 1}: ${qa.answer}`
+    ).join('\n\n');
+
+    // Generate quiz using LLM
+    const prompt = `Based on the following conversation about Kathakali, generate ${count} multiple-choice quiz questions to test understanding.
+
+Chat History:
+${contextText}
+
+Generate ${count} quiz questions in the following JSON format:
+[
+  {
+    "id": 1,
+    "question": "What is ...",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correctAnswer": "Option A",
+    "explanation": "Brief explanation"
+  }
+]
+
+Requirements:
+- Each question should test key concepts from the conversation
+- Provide 4 options per question
+- Include the correct answer
+- Add a brief explanation
+- Questions should vary in difficulty
+- Focus on Kathakali mudras, expressions, characters, or cultural knowledge discussed
+
+Return ONLY the JSON array, no additional text.`;
+
+    console.log('[QUIZ GEN] Generating quiz from chat history with', qaPairs.length, 'Q&A pairs');
+
+    const model = process.env.HF_CHAT_MODEL || 'aisingapore/Qwen-SEA-LION-v4-32B-IT';
+    const provider = process.env.HF_CHAT_PROVIDER || 'together';
+
+    const response = await client.chatCompletion({
+      provider,
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a quiz generator expert specializing in Kathakali art form. Generate high-quality quiz questions based on conversation history. Return only valid JSON.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 2000,
+      temperature: 0.7,
+    });
+
+    let quizData = response.choices[0]?.message?.content || '[]';
+
+    // Clean up response - remove markdown code blocks if present
+    quizData = quizData.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+    // Parse JSON
+    let questions;
+    try {
+      questions = JSON.parse(quizData);
+    } catch (parseError) {
+      console.error('[QUIZ GEN] Failed to parse LLM response:', quizData);
+      return res.status(500).json({ error: 'Failed to parse quiz questions from LLM' });
+    }
+
+    if (!Array.isArray(questions) || questions.length === 0) {
+      return res.status(500).json({ error: 'No valid quiz questions generated' });
+    }
+
+    console.log('[QUIZ GEN] Successfully generated', questions.length, 'quiz questions');
+
+    return res.status(200).json({
+      questions,
+      sourceQAPairs: qaPairs.length,
+    });
+  } catch (error) {
+    console.error('Error generating quiz from chat:', error);
+    return res.status(500).json({ error: 'Failed to generate quiz' });
   }
 };
