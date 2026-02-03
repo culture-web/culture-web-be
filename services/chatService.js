@@ -19,7 +19,7 @@ class ChatService {
    * @param {Object} metadata - Optional metadata (can include imageAnalysis, characterData, expressionData, imageFile)
    * @returns {Promise<Object>} Contains userMessage and optionally aiResponse
    */
-  async addMessage(userId, sessionId, message, role, metadata = {}) {
+  async addMessage(sessionId, message, role, metadata = {}) {
     // Store the user/assistant message
     const { data, error } = await supabase
       .from('messages')
@@ -28,6 +28,8 @@ class ChatService {
         role,
         content: message,
         metadata,
+        response_for: null,
+        is_summary: false,
       })
       .select()
       .single();
@@ -72,8 +74,10 @@ class ChatService {
           .insert({
             session_id: sessionId,
             role: 'assistant',
-            content: JSON.stringify(aiResponse),
+            content: aiResponse.shortAnswer || JSON.stringify(aiResponse),
             metadata: { generatedWithRAG: true },
+            response_for: userMessage.id,
+            is_summary: false,
           })
           .select()
           .single();
@@ -338,7 +342,7 @@ Please use this information to answer the user's question accurately. If the use
     return chatbotResponse;
   }
 
-  async createSession(userId) {
+  async addSession(userId) {
     console.log(
       `🆕 [ChatService] Creating new session for userId: ${userId || 'UNAUTHENTICATED'}`,
     );
@@ -365,14 +369,34 @@ Please use this information to answer the user's question accurately. If the use
   }
 
   /**
+   * Get chat sessions that belong to the user
+   * @param {*} userId - User identifier
+   * @param {*} limit - Maximum number of sessions to return (default: 100)
+   * @returns {Promise<Array>} Array of chat sessions
+   */
+  async getChatSessionsByUserId(userId, limit = 100) {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      throw new Error(`Failed to get user chat sessions: ${error.message}`);
+    }
+
+    return data || [];
+  }
+
+  /**
    * Get conversation history for a session (with user authorization)
    * @param {string} sessionId - Session identifier
-   * @param {string} userId - User identifier (for authorization)
    * @param {number} limit - Maximum number of messages to return (default: 50)
    * @param {number} offset - Offset for pagination (default: 0)
    * @returns {Promise<Array>} Array of messages ordered by timestamp
    */
-  async getMessagesByChatSessionId(sessionId, userId, limit = 50, offset = 0) {
+  async getMessagesByChatSessionId(sessionId, limit = 50, offset = 0) {
     const { data, error } = await supabase
       .from('messages')
       .select('*')

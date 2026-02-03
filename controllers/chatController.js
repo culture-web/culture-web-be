@@ -46,7 +46,7 @@ const addMessage = async (req, res) => {
 
     // if sessionId is not provided, generate a new one
     const sessionId =
-      req.body.sessionId || (await chatService.createSession(userId)).id;
+      req.body.sessionId || (await chatService.addSession(userId)).id;
     console.log(`🔗 [ChatController] Session ID: ${sessionId}`);
 
     // Handle uploaded image file if present
@@ -71,7 +71,6 @@ const addMessage = async (req, res) => {
       `🤖 [ChatController] Calling chatService.addMessage for role: ${role}`,
     );
     const result = await chatService.addMessage(
-      userId,
       sessionId,
       message,
       role,
@@ -137,16 +136,37 @@ const addMessage = async (req, res) => {
 };
 
 /**
+ * Add session for the user
+ */
+const addSession = async (req, res) => {
+  try {
+    // Get user from auth middleware
+    const { user } = req;
+    const userId = user.id;
+
+    // Create a new session for the user
+    const newSession = await chatService.addSession(userId);
+
+    return res.status(201).json({
+      success: true,
+      data: newSession,
+    });
+  } catch (error) {
+    console.error('Error adding session:', error);
+    return res.status(500).json({
+      error: 'Failed to add session',
+      details: error.message,
+    });
+  }
+};
+
+/**
  * Get conversation history for a session
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
 const getMessagesByChatSessionId = async (req, res) => {
   try {
-    // Get user from auth middleware
-    const { user } = req;
-    const userId = user.id;
-
     const { sessionId } = req.params;
     const { limit = 50, offset = 0 } = req.query;
 
@@ -173,7 +193,6 @@ const getMessagesByChatSessionId = async (req, res) => {
 
     const history = await chatService.getMessagesByChatSessionId(
       sessionId,
-      userId,
       parsedLimit,
       parsedOffset,
     );
@@ -236,6 +255,36 @@ const getChatSessionsByUserId = async (req, res) => {
 };
 
 /**
+ * Delete a message from a session
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+const deleteMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+
+    if (!messageId) {
+      return res.status(400).json({
+        error: 'Message ID is required',
+      });
+    }
+
+    await chatService.deleteMessage(messageId);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Message deleted successfully',
+    });
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    return res.status(500).json({
+      error: 'Failed to delete message',
+      details: error.message,
+    });
+  }
+};
+
+/**
  * Delete conversation history for a session
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -266,6 +315,7 @@ const deleteSessionHistory = async (req, res) => {
 };
 
 /**
+ * DESTRUCTIVE ACTION
  * Delete all conversation history for a user
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -317,8 +367,10 @@ const getConversationStats = async (req, res) => {
 
 module.exports = {
   addMessage,
-  getConversationHistory: getMessagesByChatSessionId,
-  getUserRecentHistory: getChatSessionsByUserId,
+  addSession,
+  getMessagesByChatSessionId,
+  getChatSessionsByUserId,
+  deleteMessage,
   deleteSessionHistory,
   deleteUserHistory,
   getConversationStats,
