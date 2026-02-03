@@ -5,6 +5,7 @@ const cors = require('cors');
 const kathakaliRoutes = require('./routes/kathakaliRoutes');
 const uploadDataRoutes = require('./routes/uploadDataRoutes');
 const eventsRoutes = require('./routes/eventsRoutes');
+const chatRoutes = require('./routes/chatRoutes');
 
 const app = express();
 const port = 3001; // Choose any available port
@@ -51,6 +52,8 @@ app.use('/api/kathakali', kathakaliRoutes);
 app.use('/api/kathakali', uploadDataRoutes);
 
 app.use('/api/events', eventsRoutes);
+
+app.use('/api/chat', chatRoutes);
 
 // Start the server
 const server = app.listen(port, () => {
