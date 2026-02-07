@@ -21,7 +21,7 @@ const allowedOrigins = [
   'http://127.0.0.1:5173',
   'http://127.0.0.1:4173',
   'https://kathakali.comp.nus.edu.sg',
-  'http://localhost',        // Add this line
+  'http://localhost', // Add this line
 ];
 
 const corsOptions = {

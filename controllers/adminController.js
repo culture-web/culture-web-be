@@ -1,9 +1,11 @@
+/* eslint-disable node/no-unsupported-features/es-syntax */
+/* eslint-disable node/no-unsupported-features/node-builtins */
+/* eslint-disable no-restricted-syntax */
+/* eslint-disable no-await-in-loop */
 /**
  * Admin Controller
  * Handles document ingestion and knowledge base updates
  */
-const localDbClient = require('../client/localDbClient');
-const embeddingService = require('../services/embeddingService');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -40,7 +42,10 @@ const ingestJobs = new Map();
 
 const newJobId = () => {
   if (crypto.randomUUID) return crypto.randomUUID();
-  return crypto.createHash('sha1').update(`${Date.now()}-${Math.random()}`).digest('hex');
+  return crypto
+    .createHash('sha1')
+    .update(`${Date.now()}-${Math.random()}`)
+    .digest('hex');
 };
 
 const setJobStatus = (jobId, payload) => {
@@ -65,7 +70,9 @@ const saveBufferToDisk = async (fileName, buffer) => {
     await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
     console.log(`[FILE SAVE] Created directory: ${path.dirname(targetPath)}`);
     await fs.promises.writeFile(targetPath, buffer);
-    console.log(`[FILE SAVE] Successfully saved ${buffer.length} bytes to ${targetPath}`);
+    console.log(
+      `[FILE SAVE] Successfully saved ${buffer.length} bytes to ${targetPath}`,
+    );
     return targetPath;
   } catch (err) {
     console.error(`[FILE SAVE] Error saving file: ${err.message}`, err);
@@ -77,6 +84,8 @@ const saveBufferToDisk = async (fileName, buffer) => {
 const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
 const pdfConverter = require('pdf-img-convert');
+const embeddingService = require('../services/embeddingService');
+const localDbClient = require('../client/localDbClient');
 
 const extractTextWithPdfParse = async (buffer) => {
   try {
@@ -100,26 +109,28 @@ const ocrPdfPages = async (buffer) => {
       height: 2000,
       page_numbers: undefined, // Convert all pages
     });
-    
+
     console.log(`[OCR] Converted ${pngPages.length} pages, starting OCR...`);
-    
+
     const pageTexts = [];
     for (let i = 0; i < pngPages.length; i += 1) {
       const pngBuffer = pngPages[i];
       console.log(`[OCR] Processing page ${i + 1}/${pngPages.length}...`);
-      
+
       // eslint-disable-next-line no-await-in-loop
       const { data: ocr } = await Tesseract.recognize(pngBuffer, 'eng', {
         logger: (m) => {
           if (m.status === 'recognizing text') {
-            console.log(`[OCR] Page ${i + 1}: ${Math.round(m.progress * 100)}%`);
+            console.log(
+              `[OCR] Page ${i + 1}: ${Math.round(m.progress * 100)}%`,
+            );
           }
         },
       });
-      
+
       pageTexts.push((ocr.text || '').trim());
     }
-    
+
     console.log('[OCR] Completed all pages');
     return pageTexts;
   } catch (error) {
@@ -138,16 +149,12 @@ exports.ingestDocument = async (req, res) => {
     const { fileName, text, metadata = {} } = req.body;
 
     if (!fileName || !text) {
-      return res
-        .status(400)
-        .json({ error: 'fileName and text are required' });
+      return res.status(400).json({ error: 'fileName and text are required' });
     }
 
     // Split text into chunks (LangChain)
     const chunks = await splitTextIntoChunks(text);
-    console.log(
-      `Ingesting ${fileName} with ${chunks.length} chunk(s)`,
-    );
+    console.log(`Ingesting ${fileName} with ${chunks.length} chunk(s)`);
 
     // Insert each chunk with embedding
     const insertedIds = [];
@@ -193,9 +200,7 @@ exports.updatePage = async (req, res) => {
       });
     }
 
-    console.log(
-      `Updating ${fileName} page ${pageNumber}`,
-    );
+    console.log(`Updating ${fileName} page ${pageNumber}`);
 
     // Step 1: Delete old page vectors
     await embeddingService.deletePageVectors(
@@ -203,9 +208,7 @@ exports.updatePage = async (req, res) => {
       fileName,
       pageNumber,
     );
-    console.log(
-      `Deleted old vectors for ${fileName} page ${pageNumber}`,
-    );
+    console.log(`Deleted old vectors for ${fileName} page ${pageNumber}`);
 
     // Step 2: Split new text and insert with updated metadata
     const chunks = await splitTextIntoChunks(newText);
@@ -217,7 +220,12 @@ exports.updatePage = async (req, res) => {
         localDbClient,
         chunks[i],
         fileName,
-        { ...metadata, page: pageNumber, chunkIndex: i, updatedAt: new Date().toISOString() },
+        {
+          ...metadata,
+          page: pageNumber,
+          chunkIndex: i,
+          updatedAt: new Date().toISOString(),
+        },
       );
       insertedIds.push(result.id);
     }
@@ -246,29 +254,40 @@ exports.updatePage = async (req, res) => {
  */
 exports.ingestPdf = async (req, res) => {
   try {
-    const file = req.file;
+    const { file } = req;
     if (!file) {
       return res.status(400).json({ error: 'No PDF uploaded' });
     }
 
     const jobId = newJobId();
     const fileName = file.originalname;
-    const buffer = file.buffer;
+    const { buffer } = file;
     // Check if file already exists in database
     const existingFile = await localDbClient.query(
       'SELECT COUNT(*) as count FROM knowledge_base WHERE source_file = $1',
-      [fileName]
+      [fileName],
     );
     if (existingFile.rows[0].count > 0) {
-      return res.status(409).json({ error: 'A file with this name already exists. Please rename your file or delete the existing one.' });
+      return res.status(409).json({
+        error:
+          'A file with this name already exists. Please rename your file or delete the existing one.',
+      });
     }
 
     // Check if file already exists on disk
     const filePath = resolveUploadPath(fileName);
     if (fs.existsSync(filePath)) {
-      return res.status(409).json({ error: 'A file with this name already exists on disk. Please rename your file or delete the existing one.' });
+      return res.status(409).json({
+        error:
+          'A file with this name already exists on disk. Please rename your file or delete the existing one.',
+      });
     }
-    setJobStatus(jobId, { status: 'queued', progress: 0, message: 'Queued', fileName });
+    setJobStatus(jobId, {
+      status: 'queued',
+      progress: 0,
+      message: 'Queued',
+      fileName,
+    });
 
     // Respond immediately so the client doesn’t hit gateway timeouts
     res.status(202).json({ jobId, status: 'queued', fileName });
@@ -276,16 +295,28 @@ exports.ingestPdf = async (req, res) => {
     // Process asynchronously
     setImmediate(async () => {
       try {
-        setJobStatus(jobId, { status: 'uploading', progress: 5, message: 'Saving PDF' });
+        setJobStatus(jobId, {
+          status: 'uploading',
+          progress: 5,
+          message: 'Saving PDF',
+        });
         const savedPath = await saveBufferToDisk(fileName, buffer);
         console.log(`[INGEST PDF] File persisted to: ${savedPath}`);
 
-        setJobStatus(jobId, { status: 'parsing', progress: 10, message: 'Extracting text' });
-        let extracted = await extractTextWithPdfParse(buffer);
+        setJobStatus(jobId, {
+          status: 'parsing',
+          progress: 10,
+          message: 'Extracting text',
+        });
+        const extracted = await extractTextWithPdfParse(buffer);
 
         let pageTexts = [];
         if (!extracted || extracted.length < 50) {
-          setJobStatus(jobId, { status: 'ocr', progress: 30, message: 'Running OCR (may take a while)' });
+          setJobStatus(jobId, {
+            status: 'ocr',
+            progress: 30,
+            message: 'Running OCR (may take a while)',
+          });
           pageTexts = await ocrPdfPages(buffer);
         } else {
           pageTexts = [extracted];
@@ -310,20 +341,37 @@ exports.ingestPdf = async (req, res) => {
             );
             insertedIds.push(result.id);
           }
-          const pageProgress = pageBase + Math.min(40, Math.floor(((p + 1) / totalPages) * 40));
-          setJobStatus(jobId, { status: 'embedding', progress: Math.min(90, pageProgress), message: `Embedding page ${p + 1}/${totalPages}` });
+          const pageProgress =
+            pageBase + Math.min(40, Math.floor(((p + 1) / totalPages) * 40));
+          setJobStatus(jobId, {
+            status: 'embedding',
+            progress: Math.min(90, pageProgress),
+            message: `Embedding page ${p + 1}/${totalPages}`,
+          });
         }
 
-        setJobStatus(jobId, { status: 'completed', progress: 100, message: 'PDF ingested', fileName, chunksIngested: insertedIds.length, pagesProcessed: pageTexts.length });
+        setJobStatus(jobId, {
+          status: 'completed',
+          progress: 100,
+          message: 'PDF ingested',
+          fileName,
+          chunksIngested: insertedIds.length,
+          pagesProcessed: pageTexts.length,
+        });
       } catch (error) {
         console.error('Error ingesting PDF (async):', error);
-        setJobStatus(jobId, { status: 'failed', progress: 100, message: error.message || 'Failed to ingest PDF' });
+        setJobStatus(jobId, {
+          status: 'failed',
+          progress: 100,
+          message: error.message || 'Failed to ingest PDF',
+        });
       }
     });
   } catch (error) {
     console.error('Error ingesting PDF:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
+  return undefined;
 };
 
 /**
@@ -373,11 +421,11 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
       ORDER BY upload_date DESC;
     `;
     const { rows } = await localDbClient.query(sql);
-    
+
     // Process rows to extract enabled status from metadata
-    const processedRows = rows.map(row => {
+    const processedRows = rows.map((row) => {
       let enabled = true; // Default to true if no metadata
-      
+
       // Check if any chunk has enabled explicitly set to false
       if (row.all_metadata && Array.isArray(row.all_metadata)) {
         for (const meta of row.all_metadata) {
@@ -387,15 +435,15 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
           }
         }
       }
-      
+
       return {
         name: row.name,
         upload_date: row.upload_date,
         chunk_number: row.chunk_number,
-        enabled
+        enabled,
       };
     });
-    
+
     return res.status(200).json(processedRows || []);
   } catch (error) {
     console.error('Error fetching KB files:', error);
@@ -415,14 +463,16 @@ exports.listFolders = async (req, res) => {
     const { rows } = await localDbClient.query(
       `SELECT DISTINCT split_part(source_file, '/', 1) AS folder
        FROM knowledge_base
-       WHERE position('/' in source_file) > 0;`
+       WHERE position('/' in source_file) > 0;`,
     );
     rows.forEach((r) => {
       if (r.folder) folderSet.add(r.folder);
     });
 
     // From disk directories
-    const dirEntries = await fs.promises.readdir(UPLOAD_ROOT, { withFileTypes: true });
+    const dirEntries = await fs.promises.readdir(UPLOAD_ROOT, {
+      withFileTypes: true,
+    });
     dirEntries.forEach((dirent) => {
       if (dirent.isDirectory()) folderSet.add(dirent.name);
     });
@@ -448,14 +498,18 @@ exports.createFolder = async (req, res) => {
     }
     const safeName = folderName.trim();
     const folderPath = resolveFolderPath(safeName);
-    
+
     // Check if folder already exists
     if (fs.existsSync(folderPath)) {
-      return res.status(409).json({ error: 'Folder with this name already exists' });
+      return res
+        .status(409)
+        .json({ error: 'Folder with this name already exists' });
     }
-    
+
     await fs.promises.mkdir(folderPath, { recursive: true });
-    return res.status(201).json({ message: 'Folder created', folderName: safeName });
+    return res
+      .status(201)
+      .json({ message: 'Folder created', folderName: safeName });
   } catch (error) {
     console.error('Error creating folder:', error);
     return res.status(500).json({ error: 'Failed to create folder' });
@@ -476,7 +530,7 @@ exports.deleteFolder = async (req, res) => {
     // Delete DB rows for files within the folder
     const dbResult = await localDbClient.query(
       `DELETE FROM knowledge_base WHERE source_file LIKE $1`,
-      [`${folderName}/%`]
+      [`${folderName}/%`],
     );
 
     // Delete folder from disk
@@ -531,13 +585,15 @@ exports.setFileEnabled = async (req, res) => {
     const { fileName } = req.params;
     const { enabled } = req.body;
     if (!fileName || typeof enabled === 'undefined') {
-      return res.status(400).json({ error: 'fileName and enabled are required' });
+      return res
+        .status(400)
+        .json({ error: 'fileName and enabled are required' });
     }
 
     // Get all chunks for this file
     const chunks = await localDbClient.query(
       'SELECT id, metadata FROM knowledge_base WHERE source_file = $1',
-      [fileName]
+      [fileName],
     );
 
     // Update metadata for each chunk
@@ -546,12 +602,14 @@ exports.setFileEnabled = async (req, res) => {
       metadata.enabled = enabled;
       await localDbClient.query(
         'UPDATE knowledge_base SET metadata = $1 WHERE id = $2',
-        [JSON.stringify(metadata), row.id]
+        [JSON.stringify(metadata), row.id],
       );
     });
 
     await Promise.all(updatePromises);
-    return res.status(200).json({ message: 'File enabled state updated', fileName, enabled });
+    return res
+      .status(200)
+      .json({ message: 'File enabled state updated', fileName, enabled });
   } catch (error) {
     console.error('Error setting file enabled:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -588,7 +646,11 @@ exports.reembedFile = async (req, res) => {
       updated += 1;
     }
 
-    return res.status(200).json({ message: 'Re-embedded successfully', fileName, chunksUpdated: updated });
+    return res.status(200).json({
+      message: 'Re-embedded successfully',
+      fileName,
+      chunksUpdated: updated,
+    });
   } catch (error) {
     console.error('Error re-embedding file:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -626,7 +688,9 @@ exports.startParseFile = async (req, res) => {
         let updated = 0;
         for (let i = 0; i < rows.length; i += 1) {
           const row = rows[i];
-          const embedding = await embeddingService.generateEmbedding(row.content);
+          const embedding = await embeddingService.generateEmbedding(
+            row.content,
+          );
           const embeddingVector = `[${embedding.join(',')}]`;
           await localDbClient.query(
             'UPDATE knowledge_base SET embedding = $2::vector WHERE id = $1;',
@@ -732,7 +796,9 @@ exports.renameDocument = async (req, res) => {
     const { fileName } = req.params;
     const { newName } = req.body;
     if (!fileName || !newName) {
-      return res.status(400).json({ error: 'fileName and newName are required' });
+      return res
+        .status(400)
+        .json({ error: 'fileName and newName are required' });
     }
 
     // Get the old file path
@@ -741,7 +807,7 @@ exports.renameDocument = async (req, res) => {
 
     // Check if old file exists on disk
     const fileExists = fs.existsSync(oldFilePath);
-    
+
     // If file exists, rename it on disk
     if (fileExists) {
       try {
@@ -750,7 +816,9 @@ exports.renameDocument = async (req, res) => {
         await fs.promises.mkdir(newFileDir, { recursive: true });
         // Rename the file
         await fs.promises.rename(oldFilePath, newFilePath);
-        console.log(`[RENAME] File renamed on disk: ${oldFilePath} -> ${newFilePath}`);
+        console.log(
+          `[RENAME] File renamed on disk: ${oldFilePath} -> ${newFilePath}`,
+        );
       } catch (fsError) {
         console.error(`[RENAME] Failed to rename file on disk:`, fsError);
         return res.status(500).json({ error: 'Failed to rename file on disk' });
@@ -760,13 +828,13 @@ exports.renameDocument = async (req, res) => {
     // Update database
     const sql = `UPDATE knowledge_base SET source_file = $2 WHERE source_file = $1;`;
     const result = await localDbClient.query(sql, [fileName, newName]);
-    
-    return res.status(200).json({ 
-      message: 'Document renamed', 
-      oldName: fileName, 
-      newName, 
+
+    return res.status(200).json({
+      message: 'Document renamed',
+      oldName: fileName,
+      newName,
       rowsAffected: result.rowCount,
-      fileRenamed: fileExists
+      fileRenamed: fileExists,
     });
   } catch (error) {
     console.error('Error renaming document:', error);
@@ -791,7 +859,10 @@ exports.exportDocumentText = async (req, res) => {
     );
     const text = (rows || []).map((r) => r.content).join('\n\n');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName.replace(/\s+/g, '_')}.txt"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${fileName.replace(/\s+/g, '_')}.txt"`,
+    );
     return res.status(200).send(text);
   } catch (error) {
     console.error('Error exporting document:', error);
@@ -808,7 +879,7 @@ exports.getFileChunks = async (req, res) => {
        FROM knowledge_base 
        WHERE source_file = $1 
        ORDER BY COALESCE((metadata->>'page')::int, 0), id`,
-      [fileName]
+      [fileName],
     );
 
     const chunks = result.rows.map((row) => {
@@ -817,7 +888,7 @@ exports.getFileChunks = async (req, res) => {
       if (typeof metadata === 'string') {
         metadata = JSON.parse(metadata);
       }
-      
+
       return {
         id: row.id,
         content: row.content,
@@ -843,7 +914,7 @@ exports.getFilePdf = async (req, res) => {
   try {
     const fileName = decodeURIComponent(req.params.fileName);
     const filePath = resolveUploadPath(fileName);
-    
+
     // Check if file exists
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'PDF file not found' });
@@ -863,13 +934,13 @@ exports.getFilePdf = async (req, res) => {
 // Update chunk (content, keywords, questions, tags, enabled)
 exports.updateChunk = async (req, res) => {
   try {
-    const chunkId = req.params.chunkId;
+    const { chunkId } = req.params;
     const { content, keywords, questions, tags, enabled } = req.body;
 
     // Get current chunk
     const current = await localDbClient.query(
       'SELECT metadata FROM knowledge_base WHERE id = $1',
-      [chunkId]
+      [chunkId],
     );
     if (current.rows.length === 0) {
       return res.status(404).json({ error: 'Chunk not found' });
@@ -890,7 +961,7 @@ exports.updateChunk = async (req, res) => {
       `UPDATE knowledge_base 
        SET content = COALESCE($1, content), metadata = $2 
        WHERE id = $3`,
-      [content || null, JSON.stringify(metadata), chunkId]
+      [content || null, JSON.stringify(metadata), chunkId],
     );
 
     return res.status(200).json({ message: 'Chunk updated successfully' });
@@ -903,8 +974,10 @@ exports.updateChunk = async (req, res) => {
 // Delete chunk
 exports.deleteChunk = async (req, res) => {
   try {
-    const chunkId = req.params.chunkId;
-    await localDbClient.query('DELETE FROM knowledge_base WHERE id = $1', [chunkId]);
+    const { chunkId } = req.params;
+    await localDbClient.query('DELETE FROM knowledge_base WHERE id = $1', [
+      chunkId,
+    ]);
     return res.status(200).json({ message: 'Chunk deleted successfully' });
   } catch (error) {
     console.error('Error deleting chunk:', error);
@@ -923,10 +996,10 @@ exports.bulkEnableChunks = async (req, res) => {
     const updatePromises = chunkIds.map(async (id) => {
       const current = await localDbClient.query(
         'SELECT metadata FROM knowledge_base WHERE id = $1',
-        [id]
+        [id],
       );
       if (current.rows.length === 0) return;
-      let metadata = current.rows[0].metadata;
+      let { metadata } = current.rows[0];
       // Handle both object and string metadata
       if (typeof metadata === 'string') {
         metadata = JSON.parse(metadata);
@@ -936,12 +1009,14 @@ exports.bulkEnableChunks = async (req, res) => {
       metadata.enabled = true;
       await localDbClient.query(
         'UPDATE knowledge_base SET metadata = $1 WHERE id = $2',
-        [JSON.stringify(metadata), id]
+        [JSON.stringify(metadata), id],
       );
     });
 
     await Promise.all(updatePromises);
-    return res.status(200).json({ message: `Enabled ${chunkIds.length} chunks` });
+    return res
+      .status(200)
+      .json({ message: `Enabled ${chunkIds.length} chunks` });
   } catch (error) {
     console.error('Error bulk enabling chunks:', error);
     return res.status(500).json({ error: 'Failed to enable chunks' });
@@ -959,10 +1034,10 @@ exports.bulkDisableChunks = async (req, res) => {
     const updatePromises = chunkIds.map(async (id) => {
       const current = await localDbClient.query(
         'SELECT metadata FROM knowledge_base WHERE id = $1',
-        [id]
+        [id],
       );
       if (current.rows.length === 0) return;
-      let metadata = current.rows[0].metadata;
+      let { metadata } = current.rows[0];
       // Handle both object and string metadata
       if (typeof metadata === 'string') {
         metadata = JSON.parse(metadata);
@@ -972,12 +1047,14 @@ exports.bulkDisableChunks = async (req, res) => {
       metadata.enabled = false;
       await localDbClient.query(
         'UPDATE knowledge_base SET metadata = $1 WHERE id = $2',
-        [JSON.stringify(metadata), id]
+        [JSON.stringify(metadata), id],
       );
     });
 
     await Promise.all(updatePromises);
-    return res.status(200).json({ message: `Disabled ${chunkIds.length} chunks` });
+    return res
+      .status(200)
+      .json({ message: `Disabled ${chunkIds.length} chunks` });
   } catch (error) {
     console.error('Error bulk disabling chunks:', error);
     return res.status(500).json({ error: 'Failed to disable chunks' });
@@ -992,11 +1069,12 @@ exports.bulkDeleteChunks = async (req, res) => {
       return res.status(400).json({ error: 'chunkIds array is required' });
     }
 
-    await localDbClient.query(
-      'DELETE FROM knowledge_base WHERE id = ANY($1)',
-      [chunkIds]
-    );
-    return res.status(200).json({ message: `Deleted ${chunkIds.length} chunks` });
+    await localDbClient.query('DELETE FROM knowledge_base WHERE id = ANY($1)', [
+      chunkIds,
+    ]);
+    return res
+      .status(200)
+      .json({ message: `Deleted ${chunkIds.length} chunks` });
   } catch (error) {
     console.error('Error bulk deleting chunks:', error);
     return res.status(500).json({ error: 'Failed to delete chunks' });

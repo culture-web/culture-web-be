@@ -383,8 +383,13 @@ Please use this information to answer the user's question accurately. If the use
 
 exports.chatMudras = async (req, res) => {
   try {
-    const { query, imageAnalysis, characterData, expressionData, rerankerStrategy } =
-      req.body || {};
+    const {
+      query,
+      imageAnalysis,
+      characterData,
+      expressionData,
+      rerankerStrategy,
+    } = req.body || {};
 
     if (!query) {
       console.log('Query missing, returning 400');
@@ -399,15 +404,16 @@ exports.chatMudras = async (req, res) => {
     try {
       // Use provided strategy or default to 'embedding-based'
       const strategy = rerankerStrategy || 'embedding-based';
-      
-      const similarChunks = await embeddingService.searchLocalKnowledgeBaseWithReranking(
-        localDb,
-        query,
-        10, // Final result limit
-        0.35, // similarity threshold for stage 1
-        true, // Enable reranking
-        strategy, // Pass selected reranking strategy
-      );
+
+      const similarChunks =
+        await embeddingService.searchLocalKnowledgeBaseWithReranking(
+          localDb,
+          query,
+          10, // Final result limit
+          0.35, // similarity threshold for stage 1
+          true, // Enable reranking
+          strategy, // Pass selected reranking strategy
+        );
 
       if (similarChunks && similarChunks.length > 0) {
         console.log(
@@ -421,13 +427,16 @@ exports.chatMudras = async (req, res) => {
 
         // Take top chunks up to context length limit
         const selectedChunks = [];
+        // eslint-disable-next-line no-restricted-syntax
         for (const chunk of similarChunks) {
-          const pageInfo = chunk.metadata?.page ? ` (Page ${chunk.metadata.page})` : '';
+          const pageInfo = chunk.metadata?.page
+            ? ` (Page ${chunk.metadata.page})`
+            : '';
           const chunkText = `[Source: ${chunk.source_file}${pageInfo}]\n${chunk.content}`;
-          
+
           // Estimate tokens (rough: 1 word = 1.3 tokens)
           const chunkTokens = Math.ceil(chunkText.split(/\s+/).length * 1.3);
-          
+
           if (currentContextLength + chunkTokens <= MAX_CONTEXT_LENGTH) {
             ragContextParts.push(chunkText);
             selectedChunks.push(chunk);
@@ -438,8 +447,10 @@ exports.chatMudras = async (req, res) => {
         }
 
         ragContext = ragContextParts.join('\n\n');
-        
-        console.log(`Using ${selectedChunks.length} chunks (context ~${currentContextLength} tokens)`);
+
+        console.log(
+          `Using ${selectedChunks.length} chunks (context ~${currentContextLength} tokens)`,
+        );
 
         // Build citations array with boost information
         citations = selectedChunks.map((chunk, index) => ({
@@ -455,11 +466,13 @@ exports.chatMudras = async (req, res) => {
           originalSimilarity: chunk.original_similarity || null,
           combinedScore: chunk.combined_score || null,
         }));
-        
+
         // Log boost and reranking information for debugging
         selectedChunks.forEach((chunk, idx) => {
           if (chunk.keyword_boost > 0 || chunk.question_boost > 0) {
-            console.log(`Chunk ${idx + 1} boosted - Keyword: ${chunk.keyword_boost}, Question: ${chunk.question_boost}`);
+            console.log(
+              `Chunk ${idx + 1} boosted - Keyword: ${chunk.keyword_boost}, Question: ${chunk.question_boost}`,
+            );
           }
         });
       } else {
@@ -519,20 +532,28 @@ exports.chatMudras = async (req, res) => {
 
     // Estimate total tokens to prevent overflow
     const estimatedTokens = Math.ceil(
-      (systemMessage.split(/\s+/).length + query.split(/\s+/).length) * 1.3
+      (systemMessage.split(/\s+/).length + query.split(/\s+/).length) * 1.3,
     );
-    
+
     console.log('=== LLM Request Info ===');
-    console.log(`System Message Length: ${systemMessage.length} chars, ~${Math.ceil(systemMessage.split(/\s+/).length * 1.3)} tokens`);
-    console.log(`Query Length: ${query.length} chars, ~${Math.ceil(query.split(/\s+/).length * 1.3)} tokens`);
+    console.log(
+      `System Message Length: ${systemMessage.length} chars, ~${Math.ceil(systemMessage.split(/\s+/).length * 1.3)} tokens`,
+    );
+    console.log(
+      `Query Length: ${query.length} chars, ~${Math.ceil(query.split(/\s+/).length * 1.3)} tokens`,
+    );
     console.log(`Total Estimated Tokens: ${estimatedTokens}`);
-    console.log(`RAG Context: ${ragContext ? `${Math.ceil(ragContext.split(/\s+/).length * 1.3)} tokens` : 'None'}`);
+    console.log(
+      `RAG Context: ${ragContext ? `${Math.ceil(ragContext.split(/\s+/).length * 1.3)} tokens` : 'None'}`,
+    );
     console.log(`Model: ${process.env.GROQ_MODEL || 'openai/gpt-oss-120b'}`);
     console.log(`Provider: Groq`);
     console.log('=======================\n');
-    
+
     if (estimatedTokens > 3000) {
-      console.warn(`⚠️  High token count: ${estimatedTokens} - response may be truncated`);
+      console.warn(
+        `⚠️  High token count: ${estimatedTokens} - response may be truncated`,
+      );
     }
 
     // Use the GROQ_MODEL or default model
@@ -546,13 +567,13 @@ exports.chatMudras = async (req, res) => {
     });
 
     const responseMessage = chatCompletion.choices[0].message.content;
-    
+
     console.log('=== LLM Response Info ===');
     console.log(`Response Length: ${responseMessage.length} chars`);
     console.log(`Response Preview: ${responseMessage.substring(0, 200)}...`);
     console.log(`Full Response:\n${responseMessage}`);
     console.log('========================\n');
-    
+
     const chatbotResponse = preprocessChatResponse(responseMessage);
 
     // Add citations to response
@@ -563,9 +584,7 @@ exports.chatMudras = async (req, res) => {
     console.log('Error in chatMudras:', error);
 
     if (error.message && error.message.includes('api_key')) {
-      return res
-        .status(401)
-        .json({ error: 'Invalid or missing Groq API key' });
+      return res.status(401).json({ error: 'Invalid or missing Groq API key' });
     }
 
     return res.status(500).json({ error: 'Internal server error' });
@@ -581,7 +600,11 @@ exports.generateQuizFromChat = async (req, res) => {
   try {
     const { chatHistory, count = 5 } = req.body;
 
-    if (!chatHistory || !Array.isArray(chatHistory) || chatHistory.length === 0) {
+    if (
+      !chatHistory ||
+      !Array.isArray(chatHistory) ||
+      chatHistory.length === 0
+    ) {
       return res.status(400).json({ error: 'Chat history is required' });
     }
 
@@ -590,7 +613,11 @@ exports.generateQuizFromChat = async (req, res) => {
     // Extract Q&A pairs from chat history
     const qaPairs = [];
     for (let i = 0; i < chatHistory.length; i += 1) {
-      if (chatHistory[i].role === 'user' && i + 1 < chatHistory.length && chatHistory[i + 1].role === 'assistant') {
+      if (
+        chatHistory[i].role === 'user' &&
+        i + 1 < chatHistory.length &&
+        chatHistory[i + 1].role === 'assistant'
+      ) {
         qaPairs.push({
           question: chatHistory[i].content,
           answer: chatHistory[i + 1].content,
@@ -599,13 +626,17 @@ exports.generateQuizFromChat = async (req, res) => {
     }
 
     if (qaPairs.length === 0) {
-      return res.status(400).json({ error: 'No Q&A pairs found in chat history' });
+      return res
+        .status(400)
+        .json({ error: 'No Q&A pairs found in chat history' });
     }
 
     // Build context from Q&A pairs
-    const contextText = qaPairs.map((qa, idx) => 
-      `Q${idx + 1}: ${qa.question}\nA${idx + 1}: ${qa.answer}`
-    ).join('\n\n');
+    const contextText = qaPairs
+      .map(
+        (qa, idx) => `Q${idx + 1}: ${qa.question}\nA${idx + 1}: ${qa.answer}`,
+      )
+      .join('\n\n');
 
     // Generate quiz using LLM
     const prompt = `Based on the following conversation about Kathakali, generate ${count} multiple-choice quiz questions to test understanding.
@@ -634,7 +665,11 @@ Requirements:
 
 Return ONLY the JSON array, no additional text.`;
 
-    console.log('[QUIZ GEN] Generating quiz from chat history with', qaPairs.length, 'Q&A pairs');
+    console.log(
+      '[QUIZ GEN] Generating quiz from chat history with',
+      qaPairs.length,
+      'Q&A pairs',
+    );
 
     const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
@@ -643,7 +678,8 @@ Return ONLY the JSON array, no additional text.`;
       messages: [
         {
           role: 'system',
-          content: 'You are a quiz generator expert specializing in Kathakali art form. Generate high-quality quiz questions based on conversation history. Return only valid JSON.',
+          content:
+            'You are a quiz generator expert specializing in Kathakali art form. Generate high-quality quiz questions based on conversation history. Return only valid JSON.',
         },
         { role: 'user', content: prompt },
       ],
@@ -654,7 +690,10 @@ Return ONLY the JSON array, no additional text.`;
     let quizData = response.choices[0]?.message?.content || '[]';
 
     // Clean up response - remove markdown code blocks if present
-    quizData = quizData.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    quizData = quizData
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim();
 
     // Parse JSON
     let questions;
@@ -662,14 +701,22 @@ Return ONLY the JSON array, no additional text.`;
       questions = JSON.parse(quizData);
     } catch (parseError) {
       console.error('[QUIZ GEN] Failed to parse LLM response:', quizData);
-      return res.status(500).json({ error: 'Failed to parse quiz questions from LLM' });
+      return res
+        .status(500)
+        .json({ error: 'Failed to parse quiz questions from LLM' });
     }
 
     if (!Array.isArray(questions) || questions.length === 0) {
-      return res.status(500).json({ error: 'No valid quiz questions generated' });
+      return res
+        .status(500)
+        .json({ error: 'No valid quiz questions generated' });
     }
 
-    console.log('[QUIZ GEN] Successfully generated', questions.length, 'quiz questions');
+    console.log(
+      '[QUIZ GEN] Successfully generated',
+      questions.length,
+      'quiz questions',
+    );
 
     return res.status(200).json({
       questions,

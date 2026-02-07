@@ -27,8 +27,15 @@ router.post(
 
 router.post('/chat', multerUploadErrorMiddleware, kathakaliController.chat);
 
-router.post('/chat-mudras', multerUploadErrorMiddleware, kathakaliController.chatMudras);
+router.post(
+  '/chat-mudras',
+  multerUploadErrorMiddleware,
+  kathakaliController.chatMudras,
+);
 
-router.post('/generate-quiz-from-chat', kathakaliController.generateQuizFromChat);
+router.post(
+  '/generate-quiz-from-chat',
+  kathakaliController.generateQuizFromChat,
+);
 
 module.exports = router;

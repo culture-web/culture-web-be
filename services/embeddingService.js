@@ -142,15 +142,19 @@ class EmbeddingService {
    * @param {number} similarityThreshold - minimum similarity (0..1)
    * @returns {Promise<Array>} rows with content and similarity
    */
-  async searchLocalKnowledgeBase(pool, query, limit = 5, similarityThreshold = 0.35) {
+  async searchLocalKnowledgeBase(
+    pool,
+    query,
+    limit = 5,
+    similarityThreshold = 0.35,
+  ) {
     const embedding = await this.generateEmbedding(query);
-    
+
     // Format embedding as pgvector string: [0.1, 0.2, 0.3]
     const embeddingVector = `[${embedding.join(',')}]`;
 
     // Normalize query for keyword matching
     const queryLower = query.toLowerCase();
-    const queryWords = queryLower.split(/\s+/).filter(word => word.length > 2);
 
     const sql = `
       SELECT 
@@ -211,9 +215,15 @@ class EmbeddingService {
       ORDER BY similarity DESC
       LIMIT $2;
     `;
-    
-    const { rows } = await pool.query(sql, [embeddingVector, limit, queryLower]);
-    return (rows || []).filter((r) => (r.similarity ?? 0) >= similarityThreshold);
+
+    const { rows } = await pool.query(sql, [
+      embeddingVector,
+      limit,
+      queryLower,
+    ]);
+    return (rows || []).filter(
+      (r) => (r.similarity ?? 0) >= similarityThreshold,
+    );
   }
 
   /**
@@ -232,16 +242,21 @@ class EmbeddingService {
    */
   async insertChunk(pool, content, sourceFile, metadata = {}) {
     const embedding = await this.generateEmbedding(content);
-    
+
     // Format embedding as pgvector string: [0.1, 0.2, 0.3]
     const embeddingVector = `[${embedding.join(',')}]`;
-    
+
     const sql = `
       INSERT INTO knowledge_base (content, source_file, metadata, embedding)
       VALUES ($1, $2, $3::jsonb, $4::vector)
       RETURNING id;
     `;
-    const { rows } = await pool.query(sql, [content, sourceFile, JSON.stringify(metadata), embeddingVector]);
+    const { rows } = await pool.query(sql, [
+      content,
+      sourceFile,
+      JSON.stringify(metadata),
+      embeddingVector,
+    ]);
     return rows[0];
   }
 
@@ -280,15 +295,19 @@ class EmbeddingService {
         return [];
       }
 
-      console.log(`[TWO-STAGE] Stage 1 retrieved ${candidates.length} candidates (strategy: ${strategy})`);
+      console.log(
+        `[TWO-STAGE] Stage 1 retrieved ${candidates.length} candidates (strategy: ${strategy})`,
+      );
 
       // Stage 2: Reranking (if enabled and available)
       let reranked = candidates;
       if (useReranking && this.enableReranking) {
         try {
           // Use selected reranking strategy
-          reranked = await rerankerService.rerank(strategy, query, candidates);
-          console.log(`[TWO-STAGE] Stage 2 reranked using ${strategy} strategy`);
+          reranked = await rerankerService.rerank(query, candidates, strategy);
+          console.log(
+            `[TWO-STAGE] Stage 2 reranked using ${strategy} strategy`,
+          );
 
           // Log top 3 scores for debugging
           const topScores = reranked.slice(0, 3).map((r, i) => ({
@@ -300,7 +319,10 @@ class EmbeddingService {
           }));
           console.log('[TWO-STAGE] Top 3 scores:', topScores);
         } catch (rerankerError) {
-          console.warn('Reranking failed, using stage 1 results:', rerankerError.message);
+          console.warn(
+            'Reranking failed, using stage 1 results:',
+            rerankerError.message,
+          );
           // Degrade gracefully: use original results
         }
       }
@@ -310,7 +332,12 @@ class EmbeddingService {
     } catch (error) {
       console.error('Error in two-stage retrieval:', error);
       // Fallback to simple search
-      return this.searchLocalKnowledgeBase(pool, query, limit, similarityThreshold);
+      return this.searchLocalKnowledgeBase(
+        pool,
+        query,
+        limit,
+        similarityThreshold,
+      );
     }
   }
 }

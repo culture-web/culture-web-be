@@ -22,8 +22,11 @@ class RerankerService {
       try {
         // eslint-disable-next-line node/no-unsupported-features/es-syntax
         const { pipeline } = await import('@xenova/transformers');
-        
-        this.crossEncoder = await pipeline('zero-shot-classification', this.crossEncoderModel);
+
+        this.crossEncoder = await pipeline(
+          'zero-shot-classification',
+          this.crossEncoderModel,
+        );
         console.log('Cross-encoder model loaded successfully');
       } catch (err) {
         console.error('Failed to load cross-encoder model:', err);
@@ -47,7 +50,9 @@ class RerankerService {
     try {
       await this.initializeCrossEncoder();
 
-      console.log(`[CROSS-ENCODER] Reranking ${candidates.length} candidates for query: "${query}"`);
+      console.log(
+        `[CROSS-ENCODER] Reranking ${candidates.length} candidates for query: "${query}"`,
+      );
 
       // Prepare candidate texts
       const candidateTexts = candidates.map((doc) => {
@@ -65,6 +70,7 @@ class RerankerService {
       const scores = [];
       for (let i = 0; i < candidateTexts.length; i += 1) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           const result = await this.crossEncoder(query, [candidateTexts[i]], {
             hypothesis_template: 'This document is relevant to the query.',
             multi_class: false,
@@ -74,14 +80,16 @@ class RerankerService {
           scores.push({
             index: i,
             reranker_score: score,
-            original_score: candidates[i].similarity || candidates[i].base_similarity || 0,
+            original_score:
+              candidates[i].similarity || candidates[i].base_similarity || 0,
           });
         } catch (err) {
           console.warn(`Failed to score candidate ${i}:`, err.message);
           scores.push({
             index: i,
             reranker_score: 0,
-            original_score: candidates[i].similarity || candidates[i].base_similarity || 0,
+            original_score:
+              candidates[i].similarity || candidates[i].base_similarity || 0,
           });
         }
       }
@@ -90,6 +98,7 @@ class RerankerService {
 
       const reranked = scores.map((scoreData) => {
         const original = candidates[scoreData.index];
+        /* eslint-disable node/no-unsupported-features/es-syntax */
         return {
           ...original,
           reranker_score: scoreData.reranker_score,
@@ -97,13 +106,20 @@ class RerankerService {
           final_score: scoreData.reranker_score,
           strategy: 'cross-encoder',
         };
+        /* eslint-enable node/no-unsupported-features/es-syntax */
       });
 
-      console.log(`[CROSS-ENCODER] Top score: ${scores[0]?.reranker_score?.toFixed(4) || 'N/A'}`);
+      console.log(
+        `[CROSS-ENCODER] Top score: ${scores[0]?.reranker_score?.toFixed(4) || 'N/A'}`,
+      );
       return reranked;
     } catch (error) {
       console.error('Error in cross-encoder reranking:', error);
-      return candidates.sort((a, b) => (b.similarity || b.base_similarity || 0) - (a.similarity || a.base_similarity || 0));
+      return candidates.sort(
+        (a, b) =>
+          (b.similarity || b.base_similarity || 0) -
+          (a.similarity || a.base_similarity || 0),
+      );
     }
   }
 
@@ -120,7 +136,9 @@ class RerankerService {
     }
 
     try {
-      console.log(`[EMBEDDING-BASED] Reranking ${candidates.length} candidates for query: "${query}"`);
+      console.log(
+        `[EMBEDDING-BASED] Reranking ${candidates.length} candidates for query: "${query}"`,
+      );
 
       // Generate query embedding
       const queryEmbedding = await embeddingService.generateEmbedding(query);
@@ -129,22 +147,30 @@ class RerankerService {
       const scores = [];
       for (let i = 0; i < candidates.length; i += 1) {
         try {
-          const candidateEmbedding = await embeddingService.generateEmbedding(candidates[i].content);
-          
+          // eslint-disable-next-line no-await-in-loop
+          const candidateEmbedding = await embeddingService.generateEmbedding(
+            candidates[i].content,
+          );
+
           // Calculate cosine similarity
-          const cosineSim = this.cosineSimilarity(queryEmbedding, candidateEmbedding);
-          
+          const cosineSim = this.cosineSimilarity(
+            queryEmbedding,
+            candidateEmbedding,
+          );
+
           scores.push({
             index: i,
             reranker_score: cosineSim,
-            original_score: candidates[i].similarity || candidates[i].base_similarity || 0,
+            original_score:
+              candidates[i].similarity || candidates[i].base_similarity || 0,
           });
         } catch (err) {
           console.warn(`Failed to embed candidate ${i}:`, err.message);
           scores.push({
             index: i,
             reranker_score: 0,
-            original_score: candidates[i].similarity || candidates[i].base_similarity || 0,
+            original_score:
+              candidates[i].similarity || candidates[i].base_similarity || 0,
           });
         }
       }
@@ -153,6 +179,7 @@ class RerankerService {
 
       const reranked = scores.map((scoreData) => {
         const original = candidates[scoreData.index];
+        /* eslint-disable node/no-unsupported-features/es-syntax */
         return {
           ...original,
           reranker_score: scoreData.reranker_score,
@@ -160,13 +187,20 @@ class RerankerService {
           final_score: scoreData.reranker_score,
           strategy: 'embedding-based',
         };
+        /* eslint-enable node/no-unsupported-features/es-syntax */
       });
 
-      console.log(`[EMBEDDING-BASED] Top score: ${scores[0]?.reranker_score?.toFixed(4) || 'N/A'}`);
+      console.log(
+        `[EMBEDDING-BASED] Top score: ${scores[0]?.reranker_score?.toFixed(4) || 'N/A'}`,
+      );
       return reranked;
     } catch (error) {
       console.error('Error in embedding-based reranking:', error);
-      return candidates.sort((a, b) => (b.similarity || b.base_similarity || 0) - (a.similarity || a.base_similarity || 0));
+      return candidates.sort(
+        (a, b) =>
+          (b.similarity || b.base_similarity || 0) -
+          (a.similarity || a.base_similarity || 0),
+      );
     }
   }
 
@@ -195,18 +229,21 @@ class RerankerService {
 
   /**
    * Unified rerank method - dispatches to strategy
-   * @param {string} strategy - 'cross-encoder' or 'embedding-based'
    * @param {string} query - User query
    * @param {Array<Object>} candidates - Candidates to rerank
+   * @param {string} strategy - 'cross-encoder' or 'embedding-based'
    * @returns {Promise<Array<Object>>} - Reranked results
    */
-  async rerank(strategy = 'embedding-based', query, candidates) {
-    if (!this.supportedStrategies.includes(strategy)) {
-      console.warn(`Unknown strategy: ${strategy}, falling back to embedding-based`);
-      strategy = 'embedding-based';
+  async rerank(query, candidates, strategy = 'embedding-based') {
+    let selectedStrategy = strategy;
+    if (!this.supportedStrategies.includes(selectedStrategy)) {
+      console.warn(
+        `Unknown strategy: ${selectedStrategy}, falling back to embedding-based`,
+      );
+      selectedStrategy = 'embedding-based';
     }
 
-    if (strategy === 'cross-encoder') {
+    if (selectedStrategy === 'cross-encoder') {
       return this.reankCrossEncoder(query, candidates);
     }
     return this.reankEmbeddingBased(query, candidates);

@@ -28,7 +28,10 @@ router.get('/knowledge-base/stats', adminController.getKnowledgeBaseStats);
 router.get('/knowledge-base/files', adminController.getKnowledgeBaseFiles);
 router.get('/knowledge-base/folders', adminController.listFolders);
 router.post('/knowledge-base/folders', adminController.createFolder);
-router.delete('/knowledge-base/folders/:folderName', adminController.deleteFolder);
+router.delete(
+  '/knowledge-base/folders/:folderName',
+  adminController.deleteFolder,
+);
 
 // Enable/disable a file
 router.post('/knowledge-base/:fileName/enable', adminController.setFileEnabled);
@@ -42,7 +45,10 @@ router.get('/knowledge-base/:fileName/status', adminController.getFileStatus);
 
 // Rename and export
 router.post('/knowledge-base/:fileName/rename', adminController.renameDocument);
-router.get('/knowledge-base/:fileName/export', adminController.exportDocumentText);
+router.get(
+  '/knowledge-base/:fileName/export',
+  adminController.exportDocumentText,
+);
 
 // Delete document
 router.delete('/knowledge-base/:fileName', adminController.deleteDocument);
