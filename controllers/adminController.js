@@ -43,8 +43,8 @@ const ingestJobs = new Map();
 const newJobId = () => {
   if (crypto.randomUUID) return crypto.randomUUID();
   return crypto
-    .createHash('sha1')
-    .update(`${Date.now()}-${Math.random()}`)
+    .createHash('sha256')
+    .update(`${Date.now()}-${crypto.randomBytes(16).toString('hex')}`)
     .digest('hex');
 };
 

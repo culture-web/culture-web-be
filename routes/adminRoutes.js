@@ -8,7 +8,12 @@ const adminController = require('../controllers/adminController');
 
 // Multer for PDF uploads (memory storage)
 const storage = multer.memoryStorage();
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB limit
+  },
+});
 const uploadPdfMiddleware = make(upload.single('pdf'));
 
 // Document ingestion
