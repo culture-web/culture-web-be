@@ -2,6 +2,7 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const huggingFaceClient = require('../client/huggingfaceClient');
+const groqClient = require('../client/groqClient');
 const supabase = require('../client/supabaseClient');
 const localDb = require('../client/localDbClient');
 const apiConfig = require('../apiconfig/apiConfig');
@@ -390,7 +391,7 @@ exports.chatMudras = async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    const client = huggingFaceClient.getInstance();
+    const client = groqClient.getInstance();
 
     // RAG: Search local knowledge base with two-stage retrieval (vector + reranking)
     let ragContext = '';
@@ -526,22 +527,22 @@ exports.chatMudras = async (req, res) => {
     console.log(`Query Length: ${query.length} chars, ~${Math.ceil(query.split(/\s+/).length * 1.3)} tokens`);
     console.log(`Total Estimated Tokens: ${estimatedTokens}`);
     console.log(`RAG Context: ${ragContext ? `${Math.ceil(ragContext.split(/\s+/).length * 1.3)} tokens` : 'None'}`);
-    console.log(`Model: ${process.env.HF_CHAT_MODEL || 'aisingapore/Qwen-SEA-LION-v4-32B-IT'}`);
-    console.log(`Provider: ${process.env.HF_CHAT_PROVIDER || 'together'}`);
+    console.log(`Model: ${process.env.GROQ_MODEL || 'openai/gpt-oss-120b'}`);
+    console.log(`Provider: Groq`);
     console.log('=======================\n');
     
     if (estimatedTokens > 3000) {
       console.warn(`⚠️  High token count: ${estimatedTokens} - response may be truncated`);
     }
 
-    // Use the HF_CHAT_MODEL or default model
-    const model = process.env.HF_CHAT_MODEL || 'aisingapore/Qwen-SEA-LION-v4-32B-IT';
-    const provider = process.env.HF_CHAT_PROVIDER || 'together';
+    // Use the GROQ_MODEL or default model
+    const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
-    const chatCompletion = await client.chatCompletion({
-      provider,
+    const chatCompletion = await client.chat.completions.create({
       model,
       messages,
+      max_tokens: 2000,
+      temperature: 0.7,
     });
 
     const responseMessage = chatCompletion.choices[0].message.content;
@@ -561,10 +562,10 @@ exports.chatMudras = async (req, res) => {
   } catch (error) {
     console.log('Error in chatMudras:', error);
 
-    if (error.message && error.message.includes('token')) {
+    if (error.message && error.message.includes('api_key')) {
       return res
         .status(401)
-        .json({ error: 'Invalid or missing Hugging Face token' });
+        .json({ error: 'Invalid or missing Groq API key' });
     }
 
     return res.status(500).json({ error: 'Internal server error' });
@@ -584,7 +585,7 @@ exports.generateQuizFromChat = async (req, res) => {
       return res.status(400).json({ error: 'Chat history is required' });
     }
 
-    const client = huggingFaceClient.getInstance();
+    const client = groqClient.getInstance();
 
     // Extract Q&A pairs from chat history
     const qaPairs = [];
@@ -635,11 +636,9 @@ Return ONLY the JSON array, no additional text.`;
 
     console.log('[QUIZ GEN] Generating quiz from chat history with', qaPairs.length, 'Q&A pairs');
 
-    const model = process.env.HF_CHAT_MODEL || 'aisingapore/Qwen-SEA-LION-v4-32B-IT';
-    const provider = process.env.HF_CHAT_PROVIDER || 'together';
+    const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
-    const response = await client.chatCompletion({
-      provider,
+    const response = await client.chat.completions.create({
       model,
       messages: [
         {
