@@ -27,6 +27,8 @@ jobs:
           echo "S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}" >> .env
           echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
           echo "TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}" >> .env
+          echo "HF_CHAT_PROVIDER=${{ secrets.HF_CHAT_PROVIDER }}" >> .env
+          echo "HF_MODEL_NAME=${{ secrets.HF_MODEL_NAME }}" >> .env
           echo "HF_TOKEN=${{ secrets.HF_TOKEN }}" >> .env
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
           echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
