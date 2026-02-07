@@ -33,6 +33,10 @@ jobs:
           echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
           echo "BACKEND_BASE_URL=${{ secrets.BACKEND_BASE_URL }}" >> .env
           echo "BHASKARS_BASE_URL=${{ secrets.BHASKARS_BASE_URL }}" >> .env
+          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
+          echo "KB_USERNAME=${{ secrets.KB_USERNAME }}" >> .env
+          echo "KB_PASSWORD=${{ secrets.KB_PASSWORD }}" >> .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
 
       - name: Login to DockerHub
         run: echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u culture4web --password-stdin

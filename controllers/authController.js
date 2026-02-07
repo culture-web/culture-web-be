@@ -6,8 +6,8 @@ const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../middleware/authMiddleware');
 
 // Admin credentials from environment variables
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'kathakalai2026'; // Change in production!
+const KB_USERNAME = process.env.KB_USERNAME || 'admin';
+const KB_PASSWORD = process.env.KB_PASSWORD || 'kathakalai2026'; // Change in production!
 
 /**
  * Admin login endpoint
@@ -19,7 +19,7 @@ exports.login = async (req, res) => {
     const { username, password } = req.body;
 
     // Validate credentials
-    if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    if (username !== KB_USERNAME || password !== KB_PASSWORD) {
       return res.status(401).json({
         error: 'Invalid credentials',
         message: 'Username or password is incorrect'
