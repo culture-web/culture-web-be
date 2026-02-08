@@ -27,12 +27,23 @@ jobs:
           echo "S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}" >> .env
           echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
           echo "TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}" >> .env
+          echo "HF_CHAT_PROVIDER=${{ secrets.HF_CHAT_PROVIDER }}" >> .env
+          echo "HF_MODEL_NAME=${{ secrets.HF_MODEL_NAME }}" >> .env
           echo "HF_TOKEN=${{ secrets.HF_TOKEN }}" >> .env
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
           echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
           echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
           echo "BACKEND_BASE_URL=${{ secrets.BACKEND_BASE_URL }}" >> .env
           echo "BHASKARS_BASE_URL=${{ secrets.BHASKARS_BASE_URL }}" >> .env
+          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
+          echo "KB_USERNAME=${{ secrets.KB_USERNAME }}" >> .env
+          echo "KB_PASSWORD=${{ secrets.KB_PASSWORD }}" >> .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+          echo "LOCAL_DB_HOST=${{ secrets.LOCAL_DB_HOST }}" >> .env
+          echo "LOCAL_DB_PORT=${{ secrets.LOCAL_DB_PORT }}" >> .env
+          echo "LOCAL_DB_USER=${{ secrets.LOCAL_DB_USER }}" >> .env
+          echo "LOCAL_DB_PASSWORD=${{ secrets.LOCAL_DB_PASSWORD }}" >> .env
+          echo "LOCAL_DB_NAME=${{ secrets.LOCAL_DB_NAME }}" >> .env
 
       - name: Login to DockerHub
         run: echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u culture4web --password-stdin

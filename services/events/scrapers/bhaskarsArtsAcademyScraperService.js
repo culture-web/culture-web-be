@@ -189,6 +189,7 @@ class BhaskarsArtsAcademyScraperService {
     try {
       const client = huggingFaceClient.getInstance();
       const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
+      const provider = process.env.HF_CHAT_PROVIDER || 'together';
 
       const prompt = `Analyze the following text and extract the full name of the place that the event will be held at, only if available. Return the result as a JSON object with the key "full_address". If no address is present, return an empty JSON object {}.\n\nText:\n${decoded}`;
 
@@ -207,7 +208,7 @@ class BhaskarsArtsAcademyScraperService {
       ];
 
       const chatCompletion = await client.chatCompletion({
-        provider: 'together',
+        provider,
         model,
         messages,
       });

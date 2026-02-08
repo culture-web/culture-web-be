@@ -180,16 +180,10 @@ const preprocessChatResponse = (rawResponse) => {
       }
     }
 
-    // If no structured content found, put everything in reasoning
+    // If no structured content found, put everything in shortAnswer
     if (!response.metadata.hasStructuredContent) {
-      const parts = cleanResponse.split(/\n\s*\n/);
-      if (parts.length > 1) {
-        const [firstPart] = parts;
-        response.shortAnswer = firstPart;
-        response.reasoning = parts.slice(1).join('\n\n');
-      } else {
-        response.shortAnswer = cleanResponse;
-      }
+      // Return the full response as shortAnswer instead of truncating
+      response.shortAnswer = cleanResponse;
     } else {
       // Extract remaining content as reasoning
       let remainingContent = cleanResponse;
