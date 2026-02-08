@@ -39,6 +39,11 @@ jobs:
           echo "KB_USERNAME=${{ secrets.KB_USERNAME }}" >> .env
           echo "KB_PASSWORD=${{ secrets.KB_PASSWORD }}" >> .env
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+          echo "LOCAL_DB_HOST=${{ secrets.LOCAL_DB_HOST }}" >> .env
+          echo "LOCAL_DB_PORT=${{ secrets.LOCAL_DB_PORT }}" >> .env
+          echo "LOCAL_DB_USER=${{ secrets.LOCAL_DB_USER }}" >> .env
+          echo "LOCAL_DB_PASSWORD=${{ secrets.LOCAL_DB_PASSWORD }}" >> .env
+          echo "LOCAL_DB_NAME=${{ secrets.LOCAL_DB_NAME }}" >> .env
 
       - name: Login to DockerHub
         run: echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u culture4web --password-stdin
