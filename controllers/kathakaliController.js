@@ -630,7 +630,13 @@ exports.generateQuizFromChat = async (req, res) => {
         .status(400)
         .json({ error: 'No Q&A pairs found in chat history' });
     }
-
+    console.log(
+      `[QUIZ GEN] Extracted ${qaPairs.length} Q&A pairs from chat history:`,
+    );
+    qaPairs.forEach((qa, idx) => {
+      console.log(`  Q${idx + 1}: ${qa.question}`);
+      console.log(`  A${idx + 1}: ${qa.answer}\n`);
+    });
     // Build context from Q&A pairs
     const contextText = qaPairs
       .map(
