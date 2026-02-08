@@ -1,11 +1,14 @@
 const { Pool } = require('pg');
 
 // Load environment variables with validation - no hardcoded defaults for security
-const LOCAL_DB_HOST = process.env.LOCAL_DB_HOST;
+const {
+  LOCAL_DB_HOST,
+  LOCAL_DB_USER,
+  LOCAL_DB_PASSWORD,
+  LOCAL_DB_NAME,
+} = process.env;
+
 const LOCAL_DB_PORT = Number(process.env.LOCAL_DB_PORT || 5432);
-const LOCAL_DB_USER = process.env.LOCAL_DB_USER;
-const LOCAL_DB_PASSWORD = process.env.LOCAL_DB_PASSWORD;
-const LOCAL_DB_NAME = process.env.LOCAL_DB_NAME;
 
 // Validate required credentials are set
 if (!LOCAL_DB_HOST || !LOCAL_DB_USER || !LOCAL_DB_PASSWORD || !LOCAL_DB_NAME) {
