@@ -1,7 +1,12 @@
 const { Pool } = require('pg');
 
 // Load environment variables with validation - no hardcoded defaults for security
-const { LOCAL_DB_HOST, LOCAL_DB_USER, LOCAL_DB_PASSWORD, LOCAL_DB_NAME } =  process.env;
+const {
+  LOCAL_DB_HOST,
+  LOCAL_DB_USER,
+  LOCAL_DB_PASSWORD,
+  LOCAL_DB_NAME,
+} = process.env;
 
 const LOCAL_DB_PORT = Number(process.env.LOCAL_DB_PORT || 5432);
 
