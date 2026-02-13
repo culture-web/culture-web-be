@@ -6,6 +6,9 @@ const kathakaliRoutes = require('./routes/kathakaliRoutes');
 const uploadDataRoutes = require('./routes/uploadDataRoutes');
 const eventsRoutes = require('./routes/eventsRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const authRoutes = require('./routes/authRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const { verifyAdminToken } = require('./middleware/authMiddleware');
 
 const app = express();
 const port = 3001; // Choose any available port
@@ -19,6 +22,7 @@ const allowedOrigins = [
   'http://127.0.0.1:5173',
   'http://127.0.0.1:4173',
   'https://kathakali.comp.nus.edu.sg',
+  'http://localhost', // Add this line
 ];
 
 const corsOptions = {
@@ -54,6 +58,12 @@ app.use('/api/kathakali', uploadDataRoutes);
 app.use('/api/events', eventsRoutes);
 
 app.use('/api/chat', chatRoutes);
+
+// Authentication routes (public)
+app.use('/api/auth', authRoutes);
+
+// Admin routes (protected) - renamed to obscure URL
+app.use('/api/k-manage', verifyAdminToken, adminRoutes);
 
 // Start the server
 const server = app.listen(port, () => {

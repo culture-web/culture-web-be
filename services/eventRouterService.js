@@ -18,9 +18,11 @@ class EventRouterService {
       console.log('Event router: Parsing query with LLM...');
       const client = huggingFaceClient.getInstance();
 
+      const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
+      const provider = process.env.HF_CHAT_PROVIDER || 'together';
       const response = await client.chatCompletion({
-        provider: 'together',
-        model: 'openai/gpt-oss-120b',
+        provider,
+        model,
         messages: [
           {
             role: 'system',
