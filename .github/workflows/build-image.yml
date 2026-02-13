@@ -43,6 +43,8 @@ jobs:
           echo "LOCAL_DB_USER=${{ secrets.LOCAL_DB_USER }}" >> .env
           echo "LOCAL_DB_PASSWORD=${{ secrets.LOCAL_DB_PASSWORD }}" >> .env
           echo "LOCAL_DB_NAME=${{ secrets.LOCAL_DB_NAME }}" >> .env
+          echo "SUPABASE_JWT_ISSUER=${{ secrets.SUPABASE_JWT_ISSUER }}" >> .env
+          echo "SUPABASE_JWKS_URL=${{ secrets.SUPABASE_JWKS_URL }}" >> .env
 
       - name: Login to DockerHub
         run: echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u culture4web --password-stdin
