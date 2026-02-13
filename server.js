@@ -5,6 +5,7 @@ const cors = require('cors');
 const kathakaliRoutes = require('./routes/kathakaliRoutes');
 const uploadDataRoutes = require('./routes/uploadDataRoutes');
 const eventsRoutes = require('./routes/eventsRoutes');
+const chatRoutes = require('./routes/chatRoutes');
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const { verifyAdminToken } = require('./middleware/authMiddleware');
@@ -55,6 +56,8 @@ app.use('/api/kathakali', kathakaliRoutes);
 app.use('/api/kathakali', uploadDataRoutes);
 
 app.use('/api/events', eventsRoutes);
+
+app.use('/api/chat', chatRoutes);
 
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);

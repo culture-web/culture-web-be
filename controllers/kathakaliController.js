@@ -152,10 +152,10 @@ exports.classifyCharacter = async (req, res) => {
 
 exports.chat = async (req, res) => {
   try {
-    const { query, imageAnalysis, characterData, expressionData } =
+    const { message, imageAnalysis, characterData, expressionData } =
       req.body || {};
 
-    if (!query) {
+    if (!message) {
       console.log('Query missing, returning 400');
       return res.status(400).json({ error: 'Query is required' });
     }
@@ -165,12 +165,12 @@ exports.chat = async (req, res) => {
     const messages = [
       {
         role: 'user',
-        content: query,
+        content: message,
       },
     ];
 
     // RAG: Parse query to extract event search parameters
-    const eventParams = await eventRouterService.parseEventQuery(query);
+    const eventParams = await eventRouterService.parseEventQuery(message);
     console.log('Event query parameters:', eventParams);
 
     // If event-related, perform vector search and add context
@@ -384,14 +384,14 @@ Please use this information to answer the user's question accurately. If the use
 exports.chatMudras = async (req, res) => {
   try {
     const {
-      query,
+      message,
       imageAnalysis,
       characterData,
       expressionData,
       rerankerStrategy,
     } = req.body || {};
 
-    if (!query) {
+    if (!message) {
       console.log('Query missing, returning 400');
       return res.status(400).json({ error: 'Query is required' });
     }
@@ -408,7 +408,7 @@ exports.chatMudras = async (req, res) => {
       const similarChunks =
         await embeddingService.searchLocalKnowledgeBaseWithReranking(
           localDb,
-          query,
+          message,
           10, // Final result limit
           0.35, // similarity threshold for stage 1
           true, // Enable reranking
@@ -486,7 +486,7 @@ exports.chatMudras = async (req, res) => {
     const messages = [
       {
         role: 'user',
-        content: query,
+        content: message,
       },
     ];
 
@@ -532,7 +532,7 @@ exports.chatMudras = async (req, res) => {
 
     // Estimate total tokens to prevent overflow
     const estimatedTokens = Math.ceil(
-      (systemMessage.split(/\s+/).length + query.split(/\s+/).length) * 1.3,
+      (systemMessage.split(/\s+/).length + message.split(/\s+/).length) * 1.3,
     );
 
     console.log('=== LLM Request Info ===');
@@ -540,7 +540,7 @@ exports.chatMudras = async (req, res) => {
       `System Message Length: ${systemMessage.length} chars, ~${Math.ceil(systemMessage.split(/\s+/).length * 1.3)} tokens`,
     );
     console.log(
-      `Query Length: ${query.length} chars, ~${Math.ceil(query.split(/\s+/).length * 1.3)} tokens`,
+      `Query Length: ${message.length} chars, ~${Math.ceil(message.split(/\s+/).length * 1.3)} tokens`,
     );
     console.log(`Total Estimated Tokens: ${estimatedTokens}`);
     console.log(

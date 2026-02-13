@@ -11,6 +11,30 @@ jest.mock('@xenova/transformers', () => ({
   },
 }));
 
+// Mock authMiddleware to avoid SUPABASE_JWT_ISSUER URL issues
+jest.mock('../middleware/authMiddleware', () => ({
+  authenticateToken: (req, res, next) => {
+    // Mock authenticated user for tests
+    req.user = { id: 'test-user-id', email: 'test@example.com' };
+    next();
+  },
+  optionalAuth: (req, res, next) => {
+    // Mock optional authentication
+    req.user = { id: 'test-user-id', email: 'test@example.com' };
+    next();
+  },
+  verifyAdminToken: (req, res, next) => {
+    // Mock admin token verification
+    req.user = {
+      id: 'admin-user-id',
+      email: 'admin@example.com',
+      role: 'admin',
+    };
+    next();
+  },
+  JWT_SECRET: 'test-jwt-secret',
+}));
+
 const request = require('supertest');
 
 jest.mock('../client/supabaseClient', () => ({
