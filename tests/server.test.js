@@ -25,7 +25,11 @@ jest.mock('../middleware/authMiddleware', () => ({
   },
   verifyAdminToken: (req, res, next) => {
     // Mock admin token verification
-    req.user = { id: 'admin-user-id', email: 'admin@example.com', role: 'admin' };
+    req.user = {
+      id: 'admin-user-id',
+      email: 'admin@example.com',
+      role: 'admin',
+    };
     next();
   },
   JWT_SECRET: 'test-jwt-secret',
