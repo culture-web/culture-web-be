@@ -191,5 +191,5 @@ module.exports = {
   authenticateToken,
   optionalAuth,
   verifyAdminToken,
-  JWT_SECRET
+  JWT_SECRET,
 };
