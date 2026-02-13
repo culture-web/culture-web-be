@@ -77,9 +77,9 @@ const authenticateToken = async (req, res, next) => {
     return res.status(401).json({
       error: 'Token verification failed',
       details: error.message,
-    })
+    });
   }
-}
+};
 
 /**
  * Verify JWT token from Authorization header
