@@ -58,6 +58,7 @@ class ChatService {
         // Generate AI response using the same logic as kathakali controller
         console.log('⚙️ [ChatService] Calling generateAIResponse...');
         const aiResponse = await this.generateAIResponse(
+          sessionId,
           message,
           imageAnalysis,
           characterData,
@@ -65,7 +66,9 @@ class ChatService {
           imageFile,
         );
 
-        console.log(`🎯 [ChatService] AI response generated successfully`);
+        console.log(
+          `🎯 [ChatService] AI response generated successfully: ${JSON.stringify(aiResponse, null, 2)}`,
+        );
 
         // Store the AI response
         console.log('💾 [ChatService] Storing AI response in database...');
@@ -74,7 +77,7 @@ class ChatService {
           .insert({
             session_id: sessionId,
             role: 'assistant',
-            content: aiResponse.shortAnswer || JSON.stringify(aiResponse),
+            content: aiResponse,
             metadata: { generatedWithRAG: true },
             response_for: userMessage.id,
             is_summary: false,
@@ -120,6 +123,7 @@ class ChatService {
 
   /**
    * Generate AI response with RAG capabilities
+   * @param {string} sessionId - Session identifier for message history context
    * @param {string} query - User's message/question
    * @param {string} imageAnalysis - Optional image analysis context
    * @param {Array} characterData - Optional Kathakali character data
@@ -128,6 +132,7 @@ class ChatService {
    * @returns {Promise<Object>} AI response
    */
   async generateAIResponse(
+    sessionId,
     query,
     imageAnalysis = null,
     characterData = null,
@@ -146,6 +151,53 @@ class ChatService {
         content: query,
       },
     ];
+
+    // Retrieve last 10 messages from the session for context
+    let messageHistoryContext = '';
+    if (sessionId) {
+      try {
+        console.log(
+          '📜 [ChatService] Retrieving message history for context...',
+        );
+        const recentMessages = await this.getMessagesByChatSessionId(
+          sessionId,
+          10,
+          0,
+        );
+
+        if (recentMessages && recentMessages.length > 0) {
+          // Sort messages by creation time to ensure proper order
+          const sortedMessages = recentMessages.sort(
+            (a, b) => new Date(a.created_at) - new Date(b.created_at),
+          );
+
+          // Format message history
+          const historyLines = sortedMessages.map((msg) => {
+            const timestamp = new Date(msg.created_at).toLocaleString();
+            return `[${timestamp}] ${msg.role}: ${msg.content}`;
+          });
+
+          messageHistoryContext = `\n\nRecent conversation history:\n${historyLines.join('\n')}`;
+          console.log(
+            `✅ [ChatService] Retrieved ${recentMessages.length} messages for context`,
+          );
+        }
+      } catch (historyError) {
+        console.warn(
+          '⚠️ [ChatService] Failed to retrieve message history:',
+          historyError.message,
+        );
+        // Continue without history context if retrieval fails
+      }
+    }
+
+    // Add base system message with conversation history context
+    if (messageHistoryContext) {
+      messages.unshift({
+        role: 'system',
+        content: `You are a helpful assistant for a cultural chatbot. Please use the conversation history to provide contextually relevant responses.${messageHistoryContext}`,
+      });
+    }
 
     // RAG: Parse query to extract event search parameters
     const eventParams = await eventRouterService.parseEventQuery(query);
@@ -261,19 +313,28 @@ ${endDate ? `- End Time: ${endDate.toLocaleString()}` : ''}
 
 ${eventsContext}
 
-Please use this information to answer the user's question accurately. If the user asks about upcoming events, refer to these events. Be helpful and provide details from the events listed above.`;
+Please use this information to answer the user's question accurately. If the user asks about upcoming events, refer to these events. Be helpful and provide details from the events listed above.${messageHistoryContext}`;
 
-          messages.unshift({
-            role: 'system',
-            content: eventSystemMessage,
-          });
+          if (messages.find((msg) => msg.role === 'system')) {
+            messages[0].content = eventSystemMessage;
+          } else {
+            messages.unshift({
+              role: 'system',
+              content: eventSystemMessage,
+            });
+          }
         } else {
           console.log('No relevant events found for this query');
-          messages.unshift({
-            role: 'system',
-            content:
-              'You are a helpful assistant for a cultural chatbot. The user is asking about events, but there are no upcoming events matching their query at this time. Please inform them politely.',
-          });
+          const noEventsMessage = `You are a helpful assistant for a cultural chatbot. The user is asking about events, but there are no upcoming events matching their query at this time. Please inform them politely.${messageHistoryContext}`;
+
+          if (messages.find((msg) => msg.role === 'system')) {
+            messages[0].content = noEventsMessage;
+          } else {
+            messages.unshift({
+              role: 'system',
+              content: noEventsMessage,
+            });
+          }
         }
       } catch (eventError) {
         console.error('Error fetching events for RAG:', eventError);
@@ -369,6 +430,85 @@ Please use this information to answer the user's question accurately. If the use
   }
 
   /**
+   * Generate AI-powered session title/summary based on the first user message
+   * @param {string} userMessage - The first user message
+   * @returns {Promise<string>} Generated session title
+   */
+  async generateSessionSummary(userMessage) {
+    if (!userMessage) {
+      throw new Error('User message is required for session summary');
+    }
+
+    const client = huggingFaceClient.getInstance();
+
+    const messages = [
+      {
+        role: 'system',
+        content:
+          "You are a helpful assistant that creates concise, descriptive titles for conversations. Based on the user's first message, generate a brief title (3-6 words) that captures the main topic or intent. Only respond with the title, nothing else.",
+      },
+      {
+        role: 'user',
+        content: `Please create a short title for a conversation that starts with this message: "${userMessage}"`,
+      },
+    ];
+
+    try {
+      const chatCompletion = await client.chatCompletion({
+        provider: 'together',
+        model: 'openai/gpt-oss-120b',
+        messages: messages,
+      });
+
+      const title = chatCompletion.choices[0].message.content.trim();
+      console.log(`🏷️ [ChatService] Generated session title: "${title}"`);
+      return title;
+    } catch (error) {
+      console.warn(
+        '⚠️ [ChatService] Failed to generate session summary:',
+        error.message,
+      );
+      // Fallback to first few words of the user message
+      const fallbackTitle = userMessage.substring(0, 50).trim();
+      return fallbackTitle.length < userMessage.length
+        ? `${fallbackTitle}...`
+        : fallbackTitle;
+    }
+  }
+
+  /**
+   * Update session title in the database
+   * @param {string} sessionId - Session identifier
+   * @param {string} title - New title for the session
+   * @returns {Promise<Object>} Updated session data
+   */
+  async updateSessionTitle(sessionId, title) {
+    if (!sessionId || !title) {
+      throw new Error('Session ID and title are required');
+    }
+
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ title: title })
+      .eq('id', sessionId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error(
+        '❌ [ChatService] Failed to update session title:',
+        error.message,
+      );
+      throw new Error(`Failed to update session title: ${error.message}`);
+    }
+
+    console.log(
+      `✅ [ChatService] Updated session ${sessionId} title to: "${title}"`,
+    );
+    return data;
+  }
+
+  /**
    * Get chat sessions that belong to the user
    * @param {*} userId - User identifier
    * @param {*} limit - Maximum number of sessions to return (default: 100)
@@ -426,6 +566,21 @@ Please use this information to answer the user's question accurately. If the use
     if (sessionDeleteError) {
       throw new Error(
         `Failed to delete session history: ${sessionDeleteError.message}`,
+      );
+    }
+
+    return { success: true };
+  }
+
+  async deleteMessage(messageId) {
+    const { error: messageDeleteError } = await supabase
+      .from('messages')
+      .delete()
+      .eq('id', messageId);
+
+    if (messageDeleteError) {
+      throw new Error(
+        `Failed to delete message: ${messageDeleteError.message}`,
       );
     }
 

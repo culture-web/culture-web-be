@@ -86,6 +86,49 @@ const addMessage = async (req, res) => {
       console.log(
         '🎯 [ChatController] User message with AI response generated - returning both',
       );
+
+      // Check if this is the first message in the session (indicating a new session)
+      try {
+        console.log('🔍 [ChatController] Checking if session is new...');
+        const existingMessages = await chatService.getMessagesByChatSessionId(
+          sessionId,
+          5,
+          0,
+        );
+
+        // If there's only 2 messages (the user message we just added + the AI response), it's a new session
+        const isNewSession = existingMessages.length <= 2;
+        console.log(
+          `📊 [ChatController] Session has ${existingMessages.length} messages, isNew: ${isNewSession}`,
+        );
+
+        if (isNewSession) {
+          try {
+            console.log(
+              '🏷️ [ChatController] Generating session summary for new session...',
+            );
+            const sessionTitle =
+              await chatService.generateSessionSummary(message);
+            await chatService.updateSessionTitle(sessionId, sessionTitle);
+            console.log(
+              `✅ [ChatController] Session title updated: "${sessionTitle}"`,
+            );
+          } catch (summaryError) {
+            console.warn(
+              '⚠️ [ChatController] Failed to generate session summary:',
+              summaryError.message,
+            );
+            // Continue without failing the request
+          }
+        }
+      } catch (checkError) {
+        console.warn(
+          '⚠️ [ChatController] Failed to check session status:',
+          checkError.message,
+        );
+        // Continue without session summary if check fails
+      }
+
       return res.status(201).json({
         success: true,
         data: {
