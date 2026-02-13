@@ -1,4 +1,3 @@
-const { createRemoteJWKSet, jwtVerify } = require('jose');
 const { URL } = require('url');
 const jwt = require('jsonwebtoken');
 
@@ -9,14 +8,27 @@ const JWT_SECRET =
 // Supabase JWT Configuration
 const { SUPABASE_JWT_ISSUER } = process.env;
 
-// Create remote JWKS for Supabase
-const SUPABASE_JWT_KEYS = createRemoteJWKSet(
-  new URL(`${SUPABASE_JWT_ISSUER}/.well-known/jwks.json`),
-);
+// Initialize jose functions and JWKS lazily
+let joseModule = null;
+let SUPABASE_JWT_KEYS = null;
+
+const initializeJose = async () => {
+  if (!joseModule) {
+    // eslint-disable-next-line node/no-unsupported-features/es-syntax
+    joseModule = await import('jose');
+  }
+  if (!SUPABASE_JWT_KEYS && SUPABASE_JWT_ISSUER) {
+    SUPABASE_JWT_KEYS = joseModule.createRemoteJWKSet(
+      new URL(`${SUPABASE_JWT_ISSUER}/.well-known/jwks.json`),
+    );
+  }
+  return joseModule;
+};
 
 // JWT verification function using jose library
 const verifyToken = async (token) => {
-  const { payload } = await jwtVerify(token, SUPABASE_JWT_KEYS, {
+  const jose = await initializeJose();
+  const { payload } = await jose.jwtVerify(token, SUPABASE_JWT_KEYS, {
     issuer: SUPABASE_JWT_ISSUER,
     audience: 'authenticated',
   });
