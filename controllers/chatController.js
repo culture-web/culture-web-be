@@ -2,11 +2,6 @@ const ChatService = require('../services/chatService');
 
 const chatService = new ChatService();
 
-// POST addMessage
-// DELETE deleteSession
-// GET getMessagesByChatSessionId
-// GET getChatSessionsByUserId
-
 /**
  * Add a message to conversation history
  * @param {Object} req - Express request object
