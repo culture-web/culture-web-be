@@ -1,3 +1,4 @@
+/* eslint-disable no-param-reassign */
 const huggingFaceClient = require('../client/huggingfaceClient');
 
 /**

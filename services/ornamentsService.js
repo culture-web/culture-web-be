@@ -39,6 +39,7 @@ class OrnamentsService {
         console.log(
           '🔍 [OrnamentsService] No vector matches found, trying text search...',
         );
+        // eslint-disable-next-line no-return-await
         return await this.fallbackTextSearch(supabase, query, limit);
       }
 
@@ -49,6 +50,7 @@ class OrnamentsService {
     } catch (error) {
       console.error('❌ [OrnamentsService] Error in similarity search:', error);
       // Fallback to text search
+      // eslint-disable-next-line no-return-await
       return await this.fallbackTextSearch(supabase, query, limit);
     }
   }

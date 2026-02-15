@@ -1,7 +1,6 @@
 const supabase = require('../client/supabaseClient');
 const huggingFaceClient = require('../client/huggingfaceClient');
 const queryCategorizationService = require('./queryCategorizationService');
-const eventRouterService = require('./eventRouterService');
 const ornamentsService = require('./ornamentsService');
 const musicService = require('./musicService');
 const embeddingService = require('./embeddingService');
@@ -854,7 +853,7 @@ Please provide comprehensive, culturally sensitive, and educational responses ab
       if (contexts.length > 0) {
         systemMessage += `\n\nHere is relevant information from our databases:\n\n`;
 
-        contexts.forEach((context, index) => {
+        contexts.forEach((context) => {
           systemMessage += `=== ${context.title} ===\n${context.content}\n\n`;
         });
 

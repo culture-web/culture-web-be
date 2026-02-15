@@ -49,6 +49,7 @@ class MusicService {
     } catch (error) {
       console.error('❌ [MusicService] Error in similarity search:', error);
       // Fallback to text search
+      // eslint-disable-next-line no-return-await
       return await this.fallbackTextSearch(supabase, query, limit);
     }
   }
