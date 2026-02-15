@@ -10,7 +10,18 @@ const CurriculumService = require('./curriculumService');
 class ProficiencyAssessmentService {
   constructor() {
     this.curriculumService = new CurriculumService();
-    this.client = huggingFaceClient.getInstance();
+    this.client = null; // Lazy initialization
+  }
+
+  /**
+   * Get the HuggingFace client, initializing it if needed
+   * @returns {Object} HuggingFace client instance
+   */
+  getClient() {
+    if (!this.client) {
+      this.client = huggingFaceClient.getInstance();
+    }
+    return this.client;
   }
 
   /**
@@ -155,7 +166,7 @@ class ProficiencyAssessmentService {
         `🤖 [ProficiencyAssessment] Analyzing message against full curriculum`,
       );
 
-      const response = await this.client.chatCompletion({
+      const response = await this.getClient().chatCompletion({
         provider: 'together',
         model: 'openai/gpt-oss-120b',
         messages: messages,
