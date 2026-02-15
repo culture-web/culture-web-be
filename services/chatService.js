@@ -1,6 +1,8 @@
 const supabase = require('../client/supabaseClient');
 const huggingFaceClient = require('../client/huggingfaceClient');
-const eventRouterService = require('./eventRouterService');
+const queryCategorizationService = require('./queryCategorizationService');
+const ornamentsService = require('./ornamentsService');
+const musicService = require('./musicService');
 const embeddingService = require('./embeddingService');
 const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
 
@@ -66,9 +68,7 @@ class ChatService {
           imageFile,
         );
 
-        console.log(
-          `🎯 [ChatService] AI response generated successfully: ${JSON.stringify(aiResponse, null, 2)}`,
-        );
+        console.log(`🎯 [ChatService] AI response generated successfully.`);
 
         // Store the AI response
         console.log('💾 [ChatService] Storing AI response in database...');
@@ -199,146 +199,91 @@ class ChatService {
       });
     }
 
-    // RAG: Parse query to extract event search parameters
-    const eventParams = await eventRouterService.parseEventQuery(query);
-    console.log('Event query parameters:', eventParams);
+    // Enhanced RAG: Categorize query and apply appropriate RAG strategy
+    console.log('🤖 [ChatService] Categorizing query for enhanced RAG...');
+    const queryCategory =
+      await queryCategorizationService.categorizeQuery(query);
+    console.log('Query categorization:', queryCategory);
 
-    // If event-related, perform vector search and add context
-    if (eventParams) {
-      try {
-        let similarEvents = [];
+    // Apply multi-category RAG logic
+    try {
+      let ragSystemMessage = null;
 
+      // Handle multi-category queries
+      if (queryCategory.categories.length > 1) {
         console.log(
-          `Event query detected - Topic: "${eventParams.semantic_query}", Time: ${eventParams.date_filter}, Venue: ${eventParams.venue || 'any'}`,
+          `🎯 [ChatService] Processing multi-category query with ${queryCategory.categories.length} categories`,
         );
-
-        // Determine if we should search upcoming or past events
-        const searchUpcomingOnly = eventParams.date_filter !== 'past';
-        const searchAllEvents = eventParams.date_filter === 'all';
-
-        similarEvents = await embeddingService.searchSimilarEvents(
-          supabase,
-          eventParams.semantic_query, // Use extracted semantic query
-          10, // Get more results
-          searchUpcomingOnly && !searchAllEvents, // Filter based on LLM's date_filter
-          0.3, // Lower threshold for better recall
+        ragSystemMessage = await this.handleMultiCategoryQuery(
+          queryCategory,
+          messageHistoryContext,
         );
-
+      } else {
+        // Handle single category queries
+        const singleCategory = queryCategory.categories[0];
         console.log(
-          `Semantic search found ${similarEvents.length} event(s) with similarity > 0.3`,
+          `📝 [ChatService] Processing single-category query: ${singleCategory.category}`,
         );
 
-        if (eventParams.venue && similarEvents.length > 0) {
-          const venueLower = eventParams.venue.toLowerCase();
-          similarEvents = similarEvents.filter((event) =>
-            event.location?.toLowerCase().includes(venueLower),
-          );
-          console.log(
-            `After venue filter (${eventParams.venue}): ${similarEvents.length} event(s)`,
-          );
-        }
-
-        if (similarEvents.length === 0) {
-          console.log(
-            'No events found via semantic search - fetching events as fallback',
-          );
-
-          const currentDateTime = new Date().toISOString();
-          let fetchQuery = supabase.from('events').select('*').limit(10);
-
-          if (eventParams.venue) {
-            fetchQuery = fetchQuery.ilike('location', `%${eventParams.venue}%`);
-          }
-
-          if (searchUpcomingOnly && !searchAllEvents) {
-            // Fetch upcoming events
-            fetchQuery = fetchQuery
-              .gte('start_time', currentDateTime)
-              .order('start_time', { ascending: true });
-          } else if (!searchAllEvents) {
-            // Fetch past events
-            fetchQuery = fetchQuery
-              .lt('start_time', currentDateTime)
-              .order('start_time', { ascending: false });
-          } else {
-            // Fetch all events
-            fetchQuery = fetchQuery.order('start_time', { ascending: false });
-          }
-
-          const { data: events, error } = await fetchQuery;
-
-          if (error) {
-            console.error('Error fetching events:', error);
-          } else {
-            similarEvents = events || [];
-            let timeFilter = 'past';
-            if (searchAllEvents) {
-              timeFilter = 'all';
-            } else if (searchUpcomingOnly) {
-              timeFilter = 'upcoming';
-            }
-            const venueInfo = eventParams.venue
-              ? ` at ${eventParams.venue}`
-              : '';
-            console.log(
-              `Fallback: Found ${similarEvents.length} ${timeFilter} events${venueInfo}`,
+        switch (singleCategory.category) {
+          case 'event':
+            console.log('📅 [ChatService] Processing event query...');
+            ragSystemMessage = await this.handleEventQuery(
+              singleCategory,
+              messageHistoryContext,
             );
-          }
+            break;
+
+          case 'ornament':
+            console.log('👑 [ChatService] Processing ornament query...');
+            ragSystemMessage = await this.handleOrnamentQuery(
+              singleCategory,
+              messageHistoryContext,
+            );
+            break;
+
+          case 'music':
+            console.log('🎵 [ChatService] Processing music query...');
+            ragSystemMessage = await this.handleMusicQuery(
+              singleCategory,
+              messageHistoryContext,
+            );
+            break;
+
+          case 'general':
+          default:
+            console.log('💬 [ChatService] Processing general query...');
+            ragSystemMessage = await this.handleGeneralQuery(
+              singleCategory,
+              messageHistoryContext,
+            );
+            break;
         }
+      }
 
-        if (similarEvents && similarEvents.length > 0) {
-          console.log(
-            `Found ${similarEvents.length} relevant event(s) for RAG`,
-          );
-
-          // Format events for context
-          const eventsContext = similarEvents
-            .map((event, index) => {
-              const startDate = new Date(event.start_time);
-              const endDate = event.end_time ? new Date(event.end_time) : null;
-
-              return `
-Event ${index + 1}:
-- Title: ${event.title}
-- Description: ${event.description || 'No description available'}
-- Start Time: ${startDate.toLocaleString()}
-${endDate ? `- End Time: ${endDate.toLocaleString()}` : ''}
-- Location: ${event.location || 'Location not specified'}
-- URL: ${event.url || 'No URL available'}
-`;
-            })
-            .join('\n');
-
-          const eventSystemMessage = `You are a helpful assistant for a cultural chatbot. The user is asking about cultural events. Here are the relevant upcoming events from our database:
-
-${eventsContext}
-
-Please use this information to answer the user's question accurately. If the user asks about upcoming events, refer to these events. Be helpful and provide details from the events listed above.${messageHistoryContext}`;
-
-          if (messages.find((msg) => msg.role === 'system')) {
-            messages[0].content = eventSystemMessage;
-          } else {
-            messages.unshift({
-              role: 'system',
-              content: eventSystemMessage,
-            });
-          }
+      // Apply the RAG-enhanced system message
+      if (ragSystemMessage) {
+        if (messages.find((msg) => msg.role === 'system')) {
+          messages[0].content = ragSystemMessage;
         } else {
-          console.log('No relevant events found for this query');
-          const noEventsMessage = `You are a helpful assistant for a cultural chatbot. The user is asking about events, but there are no upcoming events matching their query at this time. Please inform them politely.${messageHistoryContext}`;
-
-          if (messages.find((msg) => msg.role === 'system')) {
-            messages[0].content = noEventsMessage;
-          } else {
-            messages.unshift({
-              role: 'system',
-              content: noEventsMessage,
-            });
-          }
+          messages.unshift({
+            role: 'system',
+            content: ragSystemMessage,
+          });
         }
-      } catch (eventError) {
-        console.error('Error fetching events for RAG:', eventError);
-        // Continue with normal chat if event search fails
+      }
+    } catch (ragError) {
+      console.error('❌ [ChatService] Error in RAG processing:', ragError);
+      // Fall back to general system message
+      const fallbackMessage = `You are a helpful assistant for a Kathakali cultural chatbot. Please provide accurate information about Kathakali performances, culture, ornaments, music, and traditions.${messageHistoryContext}`;
+
+      if (messages.find((msg) => msg.role === 'system')) {
+        messages[0].content = fallbackMessage;
+      } else {
+        messages.unshift({
+          role: 'system',
+          content: fallbackMessage,
+        });
       }
     }
 
@@ -585,6 +530,422 @@ Please use this information to answer the user's question accurately. If the use
     }
 
     return { success: true };
+  }
+
+  /**
+   * Handle event-related queries with existing event RAG logic
+   * @param {Object} categoryData - Single category data object
+   * @param {string} messageHistoryContext - Previous conversation context
+   * @returns {Promise<string>} System message for event queries
+   */
+  async handleEventQuery(categoryData, messageHistoryContext) {
+    try {
+      // Use the existing event logic but with new parameters structure
+      const eventParams = {
+        semantic_query: categoryData.semantic_query,
+        date_filter: categoryData.parameters.date_filter || 'upcoming',
+        venue: categoryData.parameters.venue || null,
+      };
+
+      console.log(
+        `📅 Event query detected - Topic: "${eventParams.semantic_query}", Time: ${eventParams.date_filter}, Venue: ${eventParams.venue || 'any'}`,
+      );
+
+      // Determine if we should search upcoming or past events
+      const searchUpcomingOnly = eventParams.date_filter !== 'past';
+      const searchAllEvents = eventParams.date_filter === 'all';
+
+      let similarEvents = await embeddingService.searchSimilarEvents(
+        supabase,
+        eventParams.semantic_query, // Use extracted semantic query
+        10, // Get more results
+        searchUpcomingOnly && !searchAllEvents, // Filter based on LLM's date_filter
+        0.3, // Lower threshold for better recall
+      );
+
+      console.log(
+        `Semantic search found ${similarEvents.length} event(s) with similarity > 0.3`,
+      );
+
+      if (eventParams.venue && similarEvents.length > 0) {
+        const venueLower = eventParams.venue.toLowerCase();
+        similarEvents = similarEvents.filter((event) =>
+          event.location?.toLowerCase().includes(venueLower),
+        );
+        console.log(
+          `After venue filter (${eventParams.venue}): ${similarEvents.length} event(s)`,
+        );
+      }
+
+      if (similarEvents.length === 0) {
+        console.log(
+          'No events found via semantic search - fetching events as fallback',
+        );
+
+        const currentDateTime = new Date().toISOString();
+        let fetchQuery = supabase.from('events').select('*').limit(10);
+
+        if (eventParams.venue) {
+          fetchQuery = fetchQuery.ilike('location', `%${eventParams.venue}%`);
+        }
+
+        if (searchUpcomingOnly && !searchAllEvents) {
+          // Fetch upcoming events
+          fetchQuery = fetchQuery
+            .gte('start_time', currentDateTime)
+            .order('start_time', { ascending: true });
+        } else if (!searchAllEvents) {
+          // Fetch past events
+          fetchQuery = fetchQuery
+            .lt('start_time', currentDateTime)
+            .order('start_time', { ascending: false });
+        } else {
+          // Fetch all events
+          fetchQuery = fetchQuery.order('start_time', { ascending: false });
+        }
+
+        const { data: events, error } = await fetchQuery;
+
+        if (error) {
+          console.error('Error fetching events:', error);
+        } else {
+          similarEvents = events || [];
+          let timeFilter = 'past';
+          if (searchAllEvents) {
+            timeFilter = 'all';
+          } else if (searchUpcomingOnly) {
+            timeFilter = 'upcoming';
+          }
+          const venueInfo = eventParams.venue ? ` at ${eventParams.venue}` : '';
+          console.log(
+            `Fallback: Found ${similarEvents.length} ${timeFilter} events${venueInfo}`,
+          );
+        }
+      }
+
+      if (similarEvents && similarEvents.length > 0) {
+        console.log(`Found ${similarEvents.length} relevant event(s) for RAG`);
+
+        // Format events for context
+        const eventsContext = similarEvents
+          .map((event, index) => {
+            const startDate = new Date(event.start_time);
+            const endDate = event.end_time ? new Date(event.end_time) : null;
+
+            return `
+Event ${index + 1}:
+- Title: ${event.title}
+- Description: ${event.description || 'No description available'}
+- Start Time: ${startDate.toLocaleString()}
+${endDate ? `- End Time: ${endDate.toLocaleString()}` : ''}
+- Location: ${event.location || 'Location not specified'}
+- URL: ${event.url || 'No URL available'}
+`;
+          })
+          .join('\n');
+
+        return `You are a helpful assistant for a cultural chatbot. The user is asking about cultural events. Here are the relevant upcoming events from our database:
+
+${eventsContext}
+
+Please use this information to answer the user's question accurately. If the user asks about upcoming events, refer to these events. Be helpful and provide details from the events listed above.${messageHistoryContext}`;
+      }
+      console.log('No relevant events found for this query');
+      return `You are a helpful assistant for a cultural chatbot. The user is asking about events, but there are no upcoming events matching their query at this time. Please inform them politely.${messageHistoryContext}`;
+    } catch (error) {
+      console.error('❌ [ChatService] Error handling event query:', error);
+      return `You are a helpful assistant for a cultural chatbot. Unable to retrieve event information at this time, but please try to help with general event-related questions.${messageHistoryContext}`;
+    }
+  }
+
+  /**
+   * Handle ornament-related queries using ornaments RAG service
+   * @param {Object} categoryData - Single category data object
+   * @param {string} messageHistoryContext - Previous conversation context
+   * @returns {Promise<string>} System message for ornament queries
+   */
+  async handleOrnamentQuery(categoryData, messageHistoryContext) {
+    try {
+      console.log('👑 [ChatService] Getting ornament context...');
+      const contextData = await ornamentsService.getOrnamentContext(
+        supabase,
+        categoryData.semantic_query,
+        categoryData.parameters,
+      );
+
+      return ornamentsService.generateSystemMessage(
+        contextData,
+        messageHistoryContext,
+      );
+    } catch (error) {
+      console.error('❌ [ChatService] Error handling ornament query:', error);
+      return `You are a helpful assistant for a Kathakali cultural chatbot specializing in traditional ornaments and costumes. Please provide general information about Kathakali ornaments and their cultural significance.${messageHistoryContext}`;
+    }
+  }
+
+  /**
+   * Handle music-related queries using music RAG service
+   * @param {Object} categoryData - Single category data object
+   * @param {string} messageHistoryContext - Previous conversation context
+   * @returns {Promise<string>} System message for music queries
+   */
+  async handleMusicQuery(categoryData, messageHistoryContext) {
+    try {
+      console.log('🎵 [ChatService] Getting music context...');
+      const contextData = await musicService.getMusicContext(
+        supabase,
+        categoryData.semantic_query,
+        categoryData.parameters,
+      );
+
+      return musicService.generateSystemMessage(
+        contextData,
+        messageHistoryContext,
+      );
+    } catch (error) {
+      console.error('❌ [ChatService] Error handling music query:', error);
+      return `You are a helpful assistant for a Kathakali cultural chatbot specializing in traditional music, ragams, and rhythmic elements. Please provide general information about Kathakali music and its cultural significance.${messageHistoryContext}`;
+    }
+  }
+
+  /**
+   * Handle general Kathakali queries
+   * @param {Object} categoryData - Single category data object
+   * @param {string} messageHistoryContext - Previous conversation context
+   * @returns {Promise<string>} System message for general queries
+   */
+  async handleGeneralQuery(categoryData, messageHistoryContext) {
+    try {
+      console.log('💬 [ChatService] Handling general Kathakali query...');
+
+      // For general queries, we could potentially search the knowledge base
+      // or provide a comprehensive cultural context
+      const topic = categoryData.parameters.topic || 'general';
+
+      let systemMessage = `You are a helpful assistant for a Kathakali cultural chatbot. You specialize in providing accurate, educational information about:
+
+- Kathakali performance art and history
+- Traditional stories and characters
+- Cultural significance and traditions
+- Performance techniques and expressions
+- Regional variations and styles
+- Educational resources and learning
+
+Please provide comprehensive, culturally sensitive, and educational responses about Kathakali and related Indian classical performing arts.`;
+
+      if (topic !== 'general') {
+        systemMessage += ` The user is particularly interested in: ${topic}.`;
+      }
+
+      systemMessage += messageHistoryContext;
+
+      return systemMessage;
+    } catch (error) {
+      console.error('❌ [ChatService] Error handling general query:', error);
+      return `You are a helpful assistant for a Kathakali cultural chatbot. Please provide accurate information about Kathakali performances, culture, and traditions.${messageHistoryContext}`;
+    }
+  }
+
+  /**
+   * Handle multi-category queries by combining contexts from multiple sources
+   * @param {Object} queryCategory - Full query categorization result
+   * @param {string} messageHistoryContext - Previous conversation context
+   * @returns {Promise<string>} Combined system message for multi-category queries
+   */
+  async handleMultiCategoryQuery(queryCategory, messageHistoryContext) {
+    try {
+      console.log(
+        `🎯 [ChatService] Processing ${queryCategory.categories.length} categories: ${queryCategory.categories.map((c) => c.category).join(', ')}`,
+      );
+
+      const contexts = [];
+      const categoryNames = [];
+
+      // Process each category and collect contexts in parallel
+      const contextPromises = queryCategory.categories.map(
+        async (categoryData) => {
+          categoryNames.push(categoryData.category);
+
+          try {
+            switch (categoryData.category) {
+              case 'event': {
+                console.log(
+                  '📅 [ChatService] Getting event context for multi-category query...',
+                );
+                const eventContext =
+                  await this.getEventContextOnly(categoryData);
+                if (eventContext) {
+                  return {
+                    category: 'event',
+                    title: 'Cultural Events',
+                    content: eventContext,
+                  };
+                }
+                break;
+              }
+
+              case 'ornament': {
+                console.log(
+                  '👑 [ChatService] Getting ornament context for multi-category query...',
+                );
+                const ornamentData = await ornamentsService.getOrnamentContext(
+                  supabase,
+                  categoryData.semantic_query,
+                  categoryData.parameters,
+                );
+                if (ornamentData.hasContext) {
+                  return {
+                    category: 'ornament',
+                    title: 'Kathakali Ornaments',
+                    content: ornamentData.contextMessage,
+                  };
+                }
+                break;
+              }
+
+              case 'music': {
+                console.log(
+                  '🎵 [ChatService] Getting music context for multi-category query...',
+                );
+                const musicData = await musicService.getMusicContext(
+                  supabase,
+                  categoryData.semantic_query,
+                  categoryData.parameters,
+                );
+                if (musicData.hasContext) {
+                  return {
+                    category: 'music',
+                    title: 'Kathakali Music & Ragams',
+                    content: musicData.contextMessage,
+                  };
+                }
+                break;
+              }
+
+              default:
+                // General context is handled in the base system message
+                break;
+            }
+          } catch (categoryError) {
+            console.error(
+              `❌ [ChatService] Error processing ${categoryData.category} in multi-category query:`,
+              categoryError,
+            );
+          }
+
+          return null;
+        },
+      );
+
+      // Wait for all context retrieval operations to complete
+      const contextResults = await Promise.all(contextPromises);
+
+      // Filter out null results and add to contexts array
+      contextResults.forEach((result) => {
+        if (result) {
+          contexts.push(result);
+        }
+      });
+
+      // Build combined system message
+      let systemMessage = `You are a helpful assistant for a Kathakali cultural chatbot. The user's query spans multiple areas of Kathakali culture: ${categoryNames.join(', ')}.`;
+
+      if (contexts.length > 0) {
+        systemMessage += `\n\nHere is relevant information from our databases:\n\n`;
+
+        contexts.forEach((context) => {
+          systemMessage += `=== ${context.title} ===\n${context.content}\n\n`;
+        });
+
+        systemMessage += `Please use this comprehensive information to provide a well-rounded answer that addresses all aspects of the user's query. Connect the different elements (${categoryNames.join(', ')}) where relevant and provide educational insights about how they relate to each other in Kathakali performances.`;
+      } else {
+        systemMessage += ` Please provide comprehensive information covering all these aspects of Kathakali culture.`;
+      }
+
+      systemMessage += messageHistoryContext;
+
+      console.log(
+        `✅ [ChatService] Generated multi-category system message with ${contexts.length} context sources`,
+      );
+      return systemMessage;
+    } catch (error) {
+      console.error(
+        '❌ [ChatService] Error handling multi-category query:',
+        error,
+      );
+      return `You are a helpful assistant for a Kathakali cultural chatbot. Please provide comprehensive information about Kathakali culture, covering multiple aspects as requested by the user.${messageHistoryContext}`;
+    }
+  }
+
+  /**
+   * Get event context without full system message formatting (for multi-category use)
+   * @param {Object} categoryData - Event category data
+   * @returns {Promise<string|null>} Event context string or null
+   */
+  async getEventContextOnly(categoryData) {
+    try {
+      const eventParams = {
+        semantic_query: categoryData.semantic_query,
+        date_filter: categoryData.parameters.date_filter || 'upcoming',
+        venue: categoryData.parameters.venue || null,
+      };
+
+      const searchUpcomingOnly = eventParams.date_filter !== 'past';
+      const searchAllEvents = eventParams.date_filter === 'all';
+
+      let similarEvents = await embeddingService.searchSimilarEvents(
+        supabase,
+        eventParams.semantic_query,
+        5, // Fewer results for multi-category
+        searchUpcomingOnly && !searchAllEvents,
+        0.3,
+      );
+
+      if (eventParams.venue && similarEvents.length > 0) {
+        const venueLower = eventParams.venue.toLowerCase();
+        similarEvents = similarEvents.filter((event) =>
+          event.location?.toLowerCase().includes(venueLower),
+        );
+      }
+
+      if (similarEvents.length === 0) {
+        // Simplified fallback for multi-category
+        const currentDateTime = new Date().toISOString();
+        let fetchQuery = supabase.from('events').select('*').limit(3);
+
+        if (searchUpcomingOnly && !searchAllEvents) {
+          fetchQuery = fetchQuery
+            .gte('start_time', currentDateTime)
+            .order('start_time', { ascending: true });
+        } else {
+          fetchQuery = fetchQuery.order('start_time', { ascending: false });
+        }
+
+        const { data: events } = await fetchQuery;
+        similarEvents = events || [];
+      }
+
+      if (similarEvents.length > 0) {
+        const eventsContext = similarEvents
+          .map((event, index) => {
+            const startDate = new Date(event.start_time);
+            return `
+Event ${index + 1}:
+- Title: ${event.title}
+- Start Time: ${startDate.toLocaleString()}
+- Location: ${event.location || 'Location not specified'}
+- Description: ${event.description || 'No description available'}`;
+          })
+          .join('\n');
+
+        return eventsContext;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('❌ [ChatService] Error getting event context:', error);
+      return null;
+    }
   }
 }
 

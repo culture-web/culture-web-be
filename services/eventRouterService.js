@@ -1,5 +1,7 @@
 const huggingFaceClient = require('../client/huggingfaceClient');
 
+// TODO: TO BE DEPRECATED AFTER KATHAKALI CONTROLLER CHAT FEATURE IS DEPRECATED.
+
 /**
  * Event Router Service
  * Uses LLM to extract structured event search parameters from user queries

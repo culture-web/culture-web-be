@@ -150,6 +150,8 @@ exports.classifyCharacter = async (req, res) => {
   }
 };
 
+// TODO: TO BE MIGRATED TO CHAT SERVICE
+
 exports.chat = async (req, res) => {
   try {
     const { message, imageAnalysis, characterData, expressionData } =
