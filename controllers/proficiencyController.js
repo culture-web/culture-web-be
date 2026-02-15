@@ -1,3 +1,5 @@
+// NOTE (GERALD): Temporary addition of basic routes (no utility yet)
+
 const ProficiencyAssessmentService = require('../services/proficiencyAssessmentService');
 const CurriculumService = require('../services/curriculumService');
 const supabase = require('../client/supabaseClient');
@@ -51,11 +53,10 @@ const getUserProficiencyDetails = async (req, res) => {
       throw error;
     }
 
-    const allConcepts = curriculumService.getAllConcepts();
     const filteredStates = {};
-    
+
     // Process existing states
-    userStates.forEach(state => {
+    userStates.forEach((state) => {
       if (includeUnlearned === 'true' || state.bloom_level !== '0_unseen') {
         const concept = curriculumService.getConcept(state.node_id);
         filteredStates[state.node_id] = {
@@ -67,8 +68,8 @@ const getUserProficiencyDetails = async (req, res) => {
             name: concept?.name || state.node_id,
             description: concept?.description || '',
             prerequisites: concept?.prerequisites || [],
-            children: concept?.children || []
-          }
+            children: concept?.children || [],
+          },
         };
       }
     });
@@ -104,7 +105,10 @@ const getConceptProficiency = async (req, res) => {
       });
     }
 
-    const currentStates = await proficiencyService.getCurrentUserStates(userId, [conceptId]);
+    const currentStates = await proficiencyService.getCurrentUserStates(
+      userId,
+      [conceptId],
+    );
     const state = currentStates[conceptId];
     const concept = curriculumService.getConcept(conceptId);
 
@@ -117,9 +121,9 @@ const getConceptProficiency = async (req, res) => {
           description: concept.description,
           prerequisites: concept.prerequisites || [],
           children: concept.children || [],
-          examples: concept.examples || []
+          examples: concept.examples || [],
         },
-        proficiencyState: state
+        proficiencyState: state,
       },
     });
   } catch (error) {
@@ -143,25 +147,29 @@ const getLearningPathSuggestions = async (req, res) => {
 
     // Get all user's current proficiency states
     const allConcepts = Object.keys(curriculumService.getAllConcepts());
-    const currentStates = await proficiencyService.getCurrentUserStates(userId, allConcepts);
+    const currentStates = await proficiencyService.getCurrentUserStates(
+      userId,
+      allConcepts,
+    );
 
     // Find concepts that the user has learned (not unseen)
-    const knownConcepts = allConcepts.filter(conceptId => 
-      currentStates[conceptId]?.bloomLevel !== '0_unseen'
+    const knownConcepts = allConcepts.filter(
+      (conceptId) => currentStates[conceptId]?.bloomLevel !== '0_unseen',
     );
 
     // Get suggestions for next concepts to learn
-    const suggestions = curriculumService.getSuggestedNextConcepts(knownConcepts);
+    const suggestions =
+      curriculumService.getSuggestedNextConcepts(knownConcepts);
 
     // Enrich suggestions with concept details
-    const enrichedSuggestions = suggestions.map(conceptId => {
+    const enrichedSuggestions = suggestions.map((conceptId) => {
       const concept = curriculumService.getConcept(conceptId);
       return {
         conceptId,
         name: concept.name,
         description: concept.description,
         prerequisites: concept.prerequisites || [],
-        difficulty: concept.prerequisites?.length || 0 // Simple difficulty metric
+        difficulty: concept.prerequisites?.length || 0, // Simple difficulty metric
       };
     });
 
@@ -173,7 +181,7 @@ const getLearningPathSuggestions = async (req, res) => {
       data: {
         knownConceptsCount: knownConcepts.length,
         totalConcepts: allConcepts.length,
-        suggestions: enrichedSuggestions.slice(0, 10) // Return top 10 suggestions
+        suggestions: enrichedSuggestions.slice(0, 10), // Return top 10 suggestions
       },
     });
   } catch (error) {
@@ -187,7 +195,7 @@ const getLearningPathSuggestions = async (req, res) => {
 
 /**
  * Search concepts by name or description
- * @param {Object} req - Express request object  
+ * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
 const searchConcepts = async (req, res) => {
@@ -198,23 +206,28 @@ const searchConcepts = async (req, res) => {
 
     if (!query || query.trim().length < 2) {
       return res.status(400).json({
-        error: 'Query parameter "q" is required and must be at least 2 characters long'
+        error:
+          'Query parameter "q" is required and must be at least 2 characters long',
       });
     }
 
     const searchResults = curriculumService.searchConcepts(query.trim());
-    
+
     // If user is authenticated, include their proficiency state for each concept
     if (userId && searchResults.length > 0) {
-      const conceptIds = searchResults.map(result => result.id);
-      const userStates = await proficiencyService.getCurrentUserStates(userId, conceptIds);
-      
-      searchResults.forEach(result => {
+      const conceptIds = searchResults.map((result) => result.id);
+      const userStates = await proficiencyService.getCurrentUserStates(
+        userId,
+        conceptIds,
+      );
+
+      searchResults.forEach((result) => {
+        // eslint-disable-next-line no-param-reassign
         result.userProficiency = userStates[result.id] || {
           bloomLevel: '0_unseen',
           misconceptionFlag: false,
           lastEvidence: null,
-          lastUpdated: null
+          lastUpdated: null,
         };
       });
     }
@@ -223,7 +236,7 @@ const searchConcepts = async (req, res) => {
       success: true,
       data: {
         query: query.trim(),
-        results: searchResults.slice(0, parseInt(limit))
+        results: searchResults.slice(0, parseInt(limit, 10)),
       },
     });
   } catch (error) {
@@ -244,7 +257,7 @@ const getCurriculumOverview = async (req, res) => {
   try {
     const { includeDetails = false } = req.query;
     const curriculum = curriculumService.getAllConcepts();
-    
+
     if (includeDetails === 'true') {
       return res.status(200).json({
         success: true,
@@ -253,20 +266,20 @@ const getCurriculumOverview = async (req, res) => {
           rootConcepts: curriculumService.getRootConcepts(),
           leafConcepts: curriculumService.getLeafConcepts(),
           bloomLevels: curriculumService.getBloomLevels(),
-          concepts: curriculum
+          concepts: curriculum,
         },
       });
     }
 
     // Return just overview without full concept details
     const overview = {};
-    Object.keys(curriculum).forEach(conceptId => {
+    Object.keys(curriculum).forEach((conceptId) => {
       const concept = curriculum[conceptId];
       overview[conceptId] = {
         name: concept.name,
         description: concept.description,
         prerequisiteCount: concept.prerequisites?.length || 0,
-        childrenCount: concept.children?.length || 0
+        childrenCount: concept.children?.length || 0,
       };
     });
 
@@ -277,7 +290,7 @@ const getCurriculumOverview = async (req, res) => {
         rootConcepts: curriculumService.getRootConcepts(),
         leafConcepts: curriculumService.getLeafConcepts(),
         bloomLevels: curriculumService.getBloomLevels(),
-        concepts: overview
+        concepts: overview,
       },
     });
   } catch (error) {
@@ -301,7 +314,7 @@ const getConceptsByCategory = async (req, res) => {
     const userId = user?.id;
 
     const matchingConcepts = curriculumService.getConceptsByCategory(category);
-    
+
     if (matchingConcepts.length === 0) {
       return res.status(404).json({
         error: 'No concepts found for category',
@@ -310,7 +323,7 @@ const getConceptsByCategory = async (req, res) => {
     }
 
     // Get concept details
-    const conceptsWithDetails = matchingConcepts.map(conceptId => {
+    const conceptsWithDetails = matchingConcepts.map((conceptId) => {
       const concept = curriculumService.getConcept(conceptId);
       return {
         id: conceptId,
@@ -318,14 +331,18 @@ const getConceptsByCategory = async (req, res) => {
         description: concept.description,
         prerequisites: concept.prerequisites || [],
         children: concept.children || [],
-        examples: concept.examples || []
+        examples: concept.examples || [],
       };
     });
 
     // If user is authenticated, include proficiency states
     if (userId) {
-      const userStates = await proficiencyService.getCurrentUserStates(userId, matchingConcepts);
-      conceptsWithDetails.forEach(concept => {
+      const userStates = await proficiencyService.getCurrentUserStates(
+        userId,
+        matchingConcepts,
+      );
+      conceptsWithDetails.forEach((concept) => {
+        // eslint-disable-next-line no-param-reassign
         concept.userProficiency = userStates[concept.id];
       });
     }
@@ -335,7 +352,7 @@ const getConceptsByCategory = async (req, res) => {
       data: {
         category,
         count: conceptsWithDetails.length,
-        concepts: conceptsWithDetails
+        concepts: conceptsWithDetails,
       },
     });
   } catch (error) {

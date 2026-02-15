@@ -20,7 +20,7 @@ class ProficiencyAssessmentService {
    * @param {string} sessionId - Chat session ID for context
    * @returns {Promise<Array>} Array of proficiency updates
    */
-  async assessUserProficiency(userId, userMessage, sessionId = null) {
+  async assessUserProficiency(userId, userMessage) {
     try {
       console.log(
         `🎯 [ProficiencyAssessment] Starting assessment for user: ${userId}`,
@@ -53,7 +53,6 @@ class ProficiencyAssessmentService {
         userMessage,
         relevantConcepts,
         currentStates,
-        sessionId,
       );
 
       console.log(
@@ -134,7 +133,6 @@ class ProficiencyAssessmentService {
     userMessage,
     allConceptIds,
     currentStates,
-    sessionId,
   ) {
     try {
       const systemPrompt = this.buildComprehensiveAnalysisPrompt(
@@ -196,7 +194,6 @@ class ProficiencyAssessmentService {
    * @returns {string} System prompt for comprehensive analysis
    */
   buildComprehensiveAnalysisPrompt(allConceptIds, currentStates) {
-    const bloomDescriptions = this.curriculumService.getBloomLevels();
     const allConcepts = this.curriculumService.getAllConcepts();
 
     // Build simplified curriculum context with all concepts
@@ -369,178 +366,6 @@ Return [] only if message is completely unrelated to Kathakali.`;
   }
 
   /**
-   * Use AI to analyze user's proficiency for a specific concept
-   * @param {string} userMessage - User's message
-   * @param {string} conceptId - Concept identifier
-   * @param {Object} concept - Concept data from curriculum
-   * @param {Object} currentState - Current proficiency state
-   * @param {string} sessionId - Session ID for additional context
-   * @returns {Promise<Object>} Analysis result with new level and flags
-   */
-  async analyzeConceptProficiency(
-    userMessage,
-    conceptId,
-    concept,
-    currentState,
-    sessionId,
-  ) {
-    try {
-      const systemPrompt = this.buildAnalysisPrompt(
-        conceptId,
-        concept,
-        currentState,
-      );
-
-      const messages = [
-        {
-          role: 'system',
-          content: systemPrompt,
-        },
-        {
-          role: 'user',
-          content: `User message: "${userMessage}"`,
-        },
-      ];
-
-      console.log(`🤖 [ProficiencyAssessment] Analyzing concept: ${conceptId}`);
-
-      const response = await this.client.chatCompletion({
-        provider: 'together',
-        model: 'openai/gpt-oss-120b',
-        messages: messages,
-        temperature: 0.1, // Low temperature for consistent analysis
-      });
-
-      const aiResponse = response.choices[0].message.content;
-      return this.parseAnalysisResponse(aiResponse, userMessage);
-    } catch (error) {
-      console.error(
-        `❌ [ProficiencyAssessment] Error analyzing concept ${conceptId}:`,
-        error,
-      );
-      return null;
-    }
-  }
-
-  /**
-   * Build the AI prompt for proficiency analysis
-   * @param {string} conceptId - Concept identifier
-   * @param {Object} concept - Concept data
-   * @param {Object} currentState - Current user state
-   * @returns {string} System prompt for analysis
-   */
-  buildAnalysisPrompt(conceptId, concept, currentState) {
-    const bloomDescriptions = this.curriculumService.getBloomLevels();
-    const misconceptions = this.curriculumService.getCommonMisconceptions();
-
-    return `You are the KathakalAI Pedagogy Engine for proficiency assessment.
-
-CONCEPT BEING ANALYZED:
-- ID: ${conceptId}
-- Name: ${concept.name}
-- Description: ${concept.description}
-
-CURRENT USER STATE:
-- Current Level: ${currentState.bloomLevel} (${bloomDescriptions[currentState.bloomLevel] || 'Unknown'})
-- Has Misconception Flag: ${currentState.misconceptionFlag}
-- Last Evidence: ${currentState.lastEvidence || 'None'}
-
-BLOOM'S TAXONOMY LEVELS:
-${Object.entries(bloomDescriptions)
-  .map(([level, desc]) => `- ${level}: ${desc}`)
-  .join('\n')}
-
-ASSESSMENT RULES (CRITICAL - STICKY PROGRESS):
-
-1. **Preserve Progress Rule**: The current level is a "High Score" that should be protected.
-   - If user asks simple questions but has high level (3+ apply/analyze), DO NOT downgrade
-   - Assume they are clarifying details or exploring the concept further
-   - Only maintain or upgrade their level
-
-2. **Downgrade ONLY on Clear Error**: Only lower the level if user explicitly:
-   - Contradicts core facts about the concept
-   - Shows fundamental misunderstanding despite previously demonstrating higher knowledge
-   - Makes statements that directly oppose the concept's definition
-   - In this case, set misconception_flag to true
-
-3. **Upgrade on Evidence**: Upgrade if user demonstrates:
-   - New depth of understanding beyond their current level
-   - Ability to apply knowledge in novel ways
-   - Analysis or synthesis of concept relationships
-   - Correct usage in appropriate contexts
-
-4. **Evidence Collection**: Always note specific evidence from their message that justifies the assessment.
-
-COMMON KATHAKALI MISCONCEPTIONS TO WATCH FOR:
-${misconceptions.map((m) => `- ${m}`).join('\n')}
-
-OUTPUT FORMAT (JSON ONLY):
-{
-  "new_level": "1_remember|2_understand|3_apply|4_analyze",
-  "misconception_flag": true|false,
-  "evidence": "Specific quote or behavior from user message that justifies this assessment",
-  "reasoning": "Brief explanation of why this level was chosen",
-  "confidence": 0.1-1.0
-}
-
-Analyze the user's message ONLY in relation to the specific concept above. Be conservative with upgrades and extremely careful with downgrades.`;
-  }
-
-  /**
-   * Parse AI response to extract proficiency assessment
-   * @param {string} aiResponse - AI's analysis response
-   * @param {string} originalMessage - Original user message for evidence
-   * @returns {Object|null} Parsed assessment or null if invalid
-   */
-  parseAnalysisResponse(aiResponse, originalMessage) {
-    try {
-      // Try to extract JSON from the response
-      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        console.warn('❌ [ProficiencyAssessment] No JSON found in AI response');
-        return null;
-      }
-
-      const analysis = JSON.parse(jsonMatch[0]);
-
-      // Validate required fields
-      if (!analysis.new_level || analysis.confidence === undefined) {
-        console.warn('❌ [ProficiencyAssessment] Invalid analysis format');
-        return null;
-      }
-
-      // Validate bloom level
-      const validLevels = [
-        '0_unseen',
-        '1_remember',
-        '2_understand',
-        '3_apply',
-        '4_analyze',
-      ];
-      if (!validLevels.includes(analysis.new_level)) {
-        console.warn(
-          `❌ [ProficiencyAssessment] Invalid bloom level: ${analysis.new_level}`,
-        );
-        return null;
-      }
-
-      return {
-        newLevel: analysis.new_level,
-        misconceptionFlag: analysis.misconception_flag || false,
-        evidence: analysis.evidence || originalMessage.substring(0, 500),
-        reasoning: analysis.reasoning || 'AI assessment',
-        confidence: Math.max(0.1, Math.min(1.0, analysis.confidence || 0.5)),
-      };
-    } catch (error) {
-      console.error(
-        '❌ [ProficiencyAssessment] Error parsing AI response:',
-        error,
-      );
-      return null;
-    }
-  }
-
-  /**
    * Determine if proficiency should be updated based on analysis
    * @param {Object} currentState - Current user state
    * @param {Object} analysisResult - AI analysis result
@@ -619,59 +444,63 @@ Analyze the user's message ONLY in relation to the specific concept above. Be co
         `💾 [ProficiencyAssessment] Applying ${updates.length} updates for user: ${userId}`,
       );
 
-      for (const update of updates) {
-        // Use upsert to implement sticky progress logic
-        const { data: existingState } = await supabase
-          .from('user_proficiency_state')
-          .select('bloom_level, misconception_flag')
-          .eq('user_id', userId)
-          .eq('node_id', update.conceptId)
-          .single();
-
-        const currentLevel = this.bloomLevelToNumber(
-          existingState?.bloom_level || '0_unseen',
-        );
-        const newLevel = this.bloomLevelToNumber(update.newLevel);
-
-        // Apply sticky progress logic
-        const shouldUpdate =
-          newLevel > currentLevel || update.misconceptionFlag || !existingState;
-
-        if (shouldUpdate) {
-          const { error } = await supabase
+      await Promise.all(
+        updates.map(async (update) => {
+          // Use upsert to implement sticky progress logic
+          const { data: existingState } = await supabase
             .from('user_proficiency_state')
-            .upsert(
-              {
-                user_id: userId,
-                node_id: update.conceptId,
-                bloom_level: update.newLevel,
-                misconception_flag:
-                  update.misconceptionFlag ||
-                  existingState?.misconception_flag ||
-                  false,
-                last_evidence: update.evidence,
-                last_reasoning: update.reasoning,
-                last_confidence: update.confidence,
-                updated_at: new Date().toISOString(),
-              },
-              {
-                onConflict: 'user_id,node_id',
-              },
+            .select('bloom_level, misconception_flag')
+            .eq('user_id', userId)
+            .eq('node_id', update.conceptId)
+            .single();
+
+          const currentLevel = this.bloomLevelToNumber(
+            existingState?.bloom_level || '0_unseen',
+          );
+          const newLevel = this.bloomLevelToNumber(update.newLevel);
+
+          // Apply sticky progress logic
+          const shouldUpdate =
+            newLevel > currentLevel ||
+            update.misconceptionFlag ||
+            !existingState;
+
+          if (shouldUpdate) {
+            const { error } = await supabase
+              .from('user_proficiency_state')
+              .upsert(
+                {
+                  user_id: userId,
+                  node_id: update.conceptId,
+                  bloom_level: update.newLevel,
+                  misconception_flag:
+                    update.misconceptionFlag ||
+                    existingState?.misconception_flag ||
+                    false,
+                  last_evidence: update.evidence,
+                  last_reasoning: update.reasoning,
+                  last_confidence: update.confidence,
+                  updated_at: new Date().toISOString(),
+                },
+                {
+                  onConflict: 'user_id,node_id',
+                },
+              );
+
+            if (error) {
+              throw error;
+            }
+
+            console.log(
+              `✅ [ProficiencyAssessment] Updated ${update.conceptId}: ${update.previousState?.bloomLevel} → ${update.newLevel}`,
             );
-
-          if (error) {
-            throw error;
+          } else {
+            console.log(
+              `🛡️ [ProficiencyAssessment] Skipped update for ${update.conceptId} (sticky progress)`,
+            );
           }
-
-          console.log(
-            `✅ [ProficiencyAssessment] Updated ${update.conceptId}: ${update.previousState?.bloomLevel} → ${update.newLevel}`,
-          );
-        } else {
-          console.log(
-            `🛡️ [ProficiencyAssessment] Skipped update for ${update.conceptId} (sticky progress)`,
-          );
-        }
-      }
+        }),
+      );
     } catch (error) {
       console.error(
         '❌ [ProficiencyAssessment] Error applying updates:',

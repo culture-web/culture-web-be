@@ -22,12 +22,14 @@ class CurriculumService {
       const curriculumPath = path.join(__dirname, '../curriculum.yaml');
       const fileContents = fs.readFileSync(curriculumPath, 'utf8');
       const data = yaml.load(fileContents);
-      
+
       this.curriculum = data.curriculum;
       this.bloomLevels = data.bloom_levels;
       this.misconceptions = data.common_misconceptions;
-      
-      console.log(`✅ [CurriculumService] Loaded ${Object.keys(this.curriculum).length} curriculum concepts`);
+
+      console.log(
+        `✅ [CurriculumService] Loaded ${Object.keys(this.curriculum).length} curriculum concepts`,
+      );
     } catch (error) {
       console.error('❌ [CurriculumService] Failed to load curriculum:', error);
       throw new Error(`Failed to load curriculum: ${error.message}`);
@@ -76,7 +78,7 @@ class CurriculumService {
    * @returns {Array} Array of root concept IDs
    */
   getRootConcepts() {
-    return Object.keys(this.curriculum).filter(conceptId => {
+    return Object.keys(this.curriculum).filter((conceptId) => {
       const concept = this.curriculum[conceptId];
       return !concept.prerequisites || concept.prerequisites.length === 0;
     });
@@ -87,7 +89,7 @@ class CurriculumService {
    * @returns {Array} Array of leaf concept IDs
    */
   getLeafConcepts() {
-    return Object.keys(this.curriculum).filter(conceptId => {
+    return Object.keys(this.curriculum).filter((conceptId) => {
       const concept = this.curriculum[conceptId];
       return !concept.children || concept.children.length === 0;
     });
@@ -99,6 +101,7 @@ class CurriculumService {
    * @returns {boolean} True if concept exists
    */
   conceptExists(conceptId) {
+    // eslint-disable-next-line no-prototype-builtins
     return this.curriculum.hasOwnProperty(conceptId);
   }
 
@@ -108,9 +111,12 @@ class CurriculumService {
    * @returns {Array} Array of matching concept IDs
    */
   getConceptsByCategory(category) {
-    return Object.keys(this.curriculum).filter(conceptId => 
-      conceptId.includes(category) || 
-      this.curriculum[conceptId].name.toLowerCase().includes(category.toLowerCase())
+    return Object.keys(this.curriculum).filter(
+      (conceptId) =>
+        conceptId.includes(category) ||
+        this.curriculum[conceptId].name
+          .toLowerCase()
+          .includes(category.toLowerCase()),
     );
   }
 
@@ -122,36 +128,40 @@ class CurriculumService {
   searchConcepts(searchTerm) {
     const term = searchTerm.toLowerCase();
     return Object.keys(this.curriculum)
-      .filter(conceptId => {
+      .filter((conceptId) => {
         const concept = this.curriculum[conceptId];
-        return conceptId.toLowerCase().includes(term) ||
-               concept.name.toLowerCase().includes(term) ||
-               concept.description.toLowerCase().includes(term);
+        return (
+          conceptId.toLowerCase().includes(term) ||
+          concept.name.toLowerCase().includes(term) ||
+          concept.description.toLowerCase().includes(term)
+        );
       })
-      .map(conceptId => ({
+      .map((conceptId) => ({
         id: conceptId,
-        ...this.curriculum[conceptId]
+        // eslint-disable-next-line node/no-unsupported-features/es-syntax
+        ...this.curriculum[conceptId],
       }));
   }
 
   /**
    * Find concepts that are likely related to a user's message
-   * 
+   *
    * TODO: As the curriculum DAG grows larger, we should:
    * 1. Store the curriculum concepts in a vector database (embeddings)
    * 2. Query for semantically relevant concepts based on user message
    * 3. Include prerequisites and dependencies of relevant concepts
    * 4. This will provide better scalability and semantic understanding
-   * 
+   *
    * For now, we return all concepts and let the AI evaluate relevance
    * since our current curriculum is manageable in size (~50 concepts)
-   * 
+   *
    * @param {string} message - User's message
    * @returns {Array} Array of all concept IDs (AI will determine relevance)
    */
   findRelevantConcepts(message) {
     // For now, return all concepts and let AI determine relevance
     // This is feasible with our current curriculum size (~50 concepts)
+    console.log('Message to search for relevant concepts: ', message);
     return Object.keys(this.curriculum);
   }
 
@@ -163,20 +173,67 @@ class CurriculumService {
   extractKeywords(message) {
     // Common Kathakali-related terms to look for
     const kathakaliTerms = [
-      'kathakali', 'character', 'characters', 'makeup', 'costume', 'expression',
-      'mudra', 'mudras', 'dance', 'performance', 'story', 'color', 'face',
-      'green', 'red', 'black', 'paccha', 'kathi', 'thaadi', 'minukku', 'kari',
-      'rama', 'krishna', 'ravana', 'sita', 'arjuna', 'emotion', 'anger', 'love',
-      'fear', 'joy', 'sorrow', 'hero', 'villain', 'demon', 'god', 'divine',
-      'ornament', 'ornaments', 'music', 'instruments', 'chenda', 'ramayana',
-      'mahabharata', 'curtain', 'thirasseela', 'hand', 'gesture', 'eye',
-      'movement', 'facial', 'beard', 'crown', 'dress', 'stage', 'kerala'
+      'kathakali',
+      'character',
+      'characters',
+      'makeup',
+      'costume',
+      'expression',
+      'mudra',
+      'mudras',
+      'dance',
+      'performance',
+      'story',
+      'color',
+      'face',
+      'green',
+      'red',
+      'black',
+      'paccha',
+      'kathi',
+      'thaadi',
+      'minukku',
+      'kari',
+      'rama',
+      'krishna',
+      'ravana',
+      'sita',
+      'arjuna',
+      'emotion',
+      'anger',
+      'love',
+      'fear',
+      'joy',
+      'sorrow',
+      'hero',
+      'villain',
+      'demon',
+      'god',
+      'divine',
+      'ornament',
+      'ornaments',
+      'music',
+      'instruments',
+      'chenda',
+      'ramayana',
+      'mahabharata',
+      'curtain',
+      'thirasseela',
+      'hand',
+      'gesture',
+      'eye',
+      'movement',
+      'facial',
+      'beard',
+      'crown',
+      'dress',
+      'stage',
+      'kerala',
     ];
 
     const words = message.toLowerCase().match(/\b\w{3,}\b/g) || [];
-    return words.filter(word => 
-      kathakaliTerms.includes(word) || 
-      word.length > 5 // Include longer words that might be relevant
+    return words.filter(
+      (word) => kathakaliTerms.includes(word) || word.length > 5, // Include longer words that might be relevant
     );
   }
 
@@ -202,16 +259,16 @@ class CurriculumService {
    * @returns {boolean} True if the dependency chain is valid
    */
   validateConceptChain(concepts) {
-    for (let i = 1; i < concepts.length; i++) {
+    for (let i = 1; i < concepts.length; i += 1) {
       const currentConcept = concepts[i];
       const prerequisites = this.getPrerequisites(currentConcept);
-      
+
       // Check if any of the previous concepts satisfy the prerequisites
       const previousConcepts = concepts.slice(0, i);
-      const hasPrerequisite = prerequisites.some(prereq => 
-        previousConcepts.includes(prereq)
+      const hasPrerequisite = prerequisites.some((prereq) =>
+        previousConcepts.includes(prereq),
       );
-      
+
       if (prerequisites.length > 0 && !hasPrerequisite) {
         return false;
       }
@@ -227,15 +284,15 @@ class CurriculumService {
   getSuggestedNextConcepts(knownConcepts) {
     const suggestions = new Set();
 
-    knownConcepts.forEach(conceptId => {
+    knownConcepts.forEach((conceptId) => {
       const children = this.getChildren(conceptId);
-      children.forEach(childId => {
+      children.forEach((childId) => {
         const childPrereqs = this.getPrerequisites(childId);
         // Check if all prerequisites are satisfied
-        const allPrereqsMet = childPrereqs.every(prereq => 
-          knownConcepts.includes(prereq)
+        const allPrereqsMet = childPrereqs.every((prereq) =>
+          knownConcepts.includes(prereq),
         );
-        
+
         if (allPrereqsMet && !knownConcepts.includes(childId)) {
           suggestions.add(childId);
         }

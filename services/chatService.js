@@ -19,7 +19,7 @@ class ChatService {
   /**
    * Add a new message to the conversation history
    * If it's a user message, automatically generate and store an AI response
-   * @param {string} userId - User identifier  
+   * @param {string} userId - User identifier
    * @param {string} sessionId - Session identifier
    * @param {string} message - Message content
    * @param {string} role - 'user' or 'assistant'
@@ -106,13 +106,19 @@ class ChatService {
 
         // Truly asynchronous proficiency assessment (runs in next event loop tick)
         if (userId) {
-          console.log('🎓 [ChatService] Scheduling asynchronous proficiency assessment...');
+          console.log(
+            '🎓 [ChatService] Scheduling asynchronous proficiency assessment...',
+          );
           setImmediate(() => {
-            this.assessUserProficiency(userId, message, sessionId)
-              .catch(error => {
-                console.error('❌ [ChatService] Proficiency assessment failed:', error);
+            this.assessUserProficiency(userId, message, sessionId).catch(
+              (proficiencyError) => {
+                console.error(
+                  '❌ [ChatService] Proficiency assessment failed:',
+                  proficiencyError,
+                );
                 // Don't block the chat response if proficiency assessment fails
-              });
+              },
+            );
           });
         }
 
@@ -976,21 +982,26 @@ Event ${index + 1}:
   async assessUserProficiency(userId, message, sessionId) {
     try {
       console.log(`🎓 [ChatService] Assessing proficiency for user: ${userId}`);
-      
+
       // Use the proficiency assessment service to analyze the message
-      const proficiencyUpdates = await this.proficiencyService.assessUserProficiency(
-        userId, 
-        message, 
-        sessionId
-      );
+      const proficiencyUpdates =
+        await this.proficiencyService.assessUserProficiency(
+          userId,
+          message,
+          sessionId,
+        );
 
       if (proficiencyUpdates && proficiencyUpdates.length > 0) {
-        console.log(`📈 [ChatService] Applying ${proficiencyUpdates.length} proficiency updates`);
-        await this.proficiencyService.applyProficiencyUpdates(userId, proficiencyUpdates);
+        console.log(
+          `📈 [ChatService] Applying ${proficiencyUpdates.length} proficiency updates`,
+        );
+        await this.proficiencyService.applyProficiencyUpdates(
+          userId,
+          proficiencyUpdates,
+        );
       } else {
         console.log('📊 [ChatService] No proficiency updates needed');
       }
-
     } catch (error) {
       console.error('❌ [ChatService] Error in proficiency assessment:', error);
       // Don't throw - this is an async background task
