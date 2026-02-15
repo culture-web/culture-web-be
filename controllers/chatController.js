@@ -66,6 +66,7 @@ const addMessage = async (req, res) => {
       `🤖 [ChatController] Calling chatService.addMessage for role: ${role}`,
     );
     const result = await chatService.addMessage(
+      userId,
       sessionId,
       message,
       role,

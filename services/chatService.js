@@ -5,12 +5,17 @@ const ornamentsService = require('./ornamentsService');
 const musicService = require('./musicService');
 const embeddingService = require('./embeddingService');
 const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
+const ProficiencyAssessmentService = require('./proficiencyAssessmentService');
 
 /**
  * Conversation History Service
  * Handles storing and retrieving conversation history for the chatbot
  */
 class ChatService {
+  constructor() {
+    this.proficiencyService = new ProficiencyAssessmentService();
+  }
+
   /**
    * Add a new message to the conversation history
    * If it's a user message, automatically generate and store an AI response
@@ -21,7 +26,7 @@ class ChatService {
    * @param {Object} metadata - Optional metadata (can include imageAnalysis, characterData, expressionData, imageFile)
    * @returns {Promise<Object>} Contains userMessage and optionally aiResponse
    */
-  async addMessage(sessionId, message, role, metadata = {}) {
+  async addMessage(userId, sessionId, message, role, metadata = {}) {
     // Store the user/assistant message
     const { data, error } = await supabase
       .from('messages')
@@ -98,6 +103,25 @@ class ChatService {
         console.log(
           `✅ [ChatService] AI response stored with ID: ${aiData.id}`,
         );
+
+        // Truly asynchronous proficiency assessment (runs in next event loop tick)
+        if (userId) {
+          console.log(
+            '🎓 [ChatService] Scheduling asynchronous proficiency assessment...',
+          );
+          setImmediate(() => {
+            this.assessUserProficiency(userId, message, sessionId).catch(
+              (proficiencyError) => {
+                console.error(
+                  '❌ [ChatService] Proficiency assessment failed:',
+                  proficiencyError,
+                );
+                // Don't block the chat response if proficiency assessment fails
+              },
+            );
+          });
+        }
+
         console.log(
           '🎉 [ChatService] Returning user message + AI response + generated content',
         );
@@ -945,6 +969,42 @@ Event ${index + 1}:
     } catch (error) {
       console.error('❌ [ChatService] Error getting event context:', error);
       return null;
+    }
+  }
+
+  /**
+   * Asynchronously assess and update user proficiency based on their message
+   * @param {string} userId - User identifier
+   * @param {string} message - User's message content
+   * @param {string} sessionId - Session ID for context
+   * @returns {Promise<void>}
+   */
+  async assessUserProficiency(userId, message, sessionId) {
+    try {
+      console.log(`🎓 [ChatService] Assessing proficiency for user: ${userId}`);
+
+      // Use the proficiency assessment service to analyze the message
+      const proficiencyUpdates =
+        await this.proficiencyService.assessUserProficiency(
+          userId,
+          message,
+          sessionId,
+        );
+
+      if (proficiencyUpdates && proficiencyUpdates.length > 0) {
+        console.log(
+          `📈 [ChatService] Applying ${proficiencyUpdates.length} proficiency updates`,
+        );
+        await this.proficiencyService.applyProficiencyUpdates(
+          userId,
+          proficiencyUpdates,
+        );
+      } else {
+        console.log('📊 [ChatService] No proficiency updates needed');
+      }
+    } catch (error) {
+      console.error('❌ [ChatService] Error in proficiency assessment:', error);
+      // Don't throw - this is an async background task
     }
   }
 }

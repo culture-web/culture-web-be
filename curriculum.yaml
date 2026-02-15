@@ -1,0 +1,282 @@
+# Kathakali Knowledge Curriculum - DAG Structure
+# This defines the static knowledge graph with concept dependencies
+
+curriculum:
+  # Basic Foundation Concepts
+  kathakali_origins:
+    name: "Kathakali Origins and History"
+    description: "Understanding the historical roots and cultural significance of Kathakali"
+    prerequisites: []
+    children: ["kathakali_basics", "regional_variations"]
+    
+  kathakali_basics:
+    name: "Kathakali Fundamentals"
+    description: "Basic understanding of what Kathakali is as an art form"
+    prerequisites: ["kathakali_origins"]
+    children: ["characters_introduction", "performance_structure", "costumes_makeup_intro"]
+    
+  # Character System
+  characters_introduction:
+    name: "Character Types Introduction"
+    description: "Basic understanding of different character categories"
+    prerequisites: ["kathakali_basics"]
+    children: ["paccha_characters", "kathi_characters", "thaadi_characters", "minukku_characters", "kari_characters"]
+    
+  paccha_characters:
+    name: "Paccha (Noble) Characters"
+    description: "Green-faced noble heroes and divine characters"
+    prerequisites: ["characters_introduction"]
+    children: ["character_identification", "paccha_makeup_details"]
+    examples: ["Rama", "Krishna", "Arjuna"]
+    
+  kathi_characters:
+    name: "Kathi (Heroic Villains) Characters"  
+    description: "Characters with knife-like mustaches, often anti-heroes"
+    prerequisites: ["characters_introduction"]
+    children: ["character_identification", "kathi_makeup_details"]
+    examples: ["Ravana", "Duryodhana"]
+    
+  thaadi_characters:
+    name: "Thaadi (Bearded) Characters"
+    description: "Characters with elaborate beards, usually demons or evil beings"
+    prerequisites: ["characters_introduction"] 
+    children: ["character_identification", "thaadi_makeup_details"]
+    examples: ["Narakasura", "Baka"]
+    
+  minukku_characters:
+    name: "Minukku (Radiant) Characters"
+    description: "Characters with lustrous faces, typically women and sages"
+    prerequisites: ["characters_introduction"]
+    children: ["character_identification", "minukku_makeup_details"]
+    examples: ["Sita", "Panchali", "Mohini"]
+    
+  kari_characters:
+    name: "Kari (Black) Characters"
+    description: "Characters with black faces, often representing hunters or tribal people"
+    prerequisites: ["characters_introduction"]
+    children: ["character_identification", "kari_makeup_details"]
+    examples: ["Hunter", "Tribal characters"]
+    
+  # Makeup and Costumes
+  costumes_makeup_intro:
+    name: "Costumes and Makeup Introduction"
+    description: "Basic understanding of the importance of visual elements in Kathakali"
+    prerequisites: ["kathakali_basics"]
+    children: ["makeup_significance", "costume_elements"]
+    
+  makeup_significance:
+    name: "Makeup Symbolic Significance"
+    description: "Understanding how makeup conveys character traits and emotions"
+    prerequisites: ["costumes_makeup_intro"]
+    children: ["color_symbolism", "facial_designs"]
+    
+  costume_elements:
+    name: "Costume Components"
+    description: "Various elements that make up Kathakali costumes"
+    prerequisites: ["costumes_makeup_intro"]
+    children: ["headgear", "ornaments", "clothing_layers"]
+    
+  # Expressions and Movements  
+  expressions_basic:
+    name: "Basic Facial Expressions"
+    description: "Introduction to Kathakali facial expressions (bhav)"
+    prerequisites: ["kathakali_basics"]
+    children: ["navarasas", "eye_movements", "facial_mudras"]
+    
+  navarasas:
+    name: "Navarasas (Nine Emotions)"
+    description: "The nine primary emotions expressed in Kathakali"
+    prerequisites: ["expressions_basic"]
+    children: ["hasya", "karuna", "roudra", "veera", "bhayanaka", "bibhatsa", "adbhuta", "shaanta", "shringar"]
+    
+  hasya:
+    name: "Hasya (Comedy/Laughter)"
+    description: "Expression and portrayal of comedic emotions"
+    prerequisites: ["navarasas"]
+    children: ["expression_techniques"]
+    
+  karuna:
+    name: "Karuna (Pathos/Sorrow)" 
+    description: "Expression of sorrow, compassion, and pathos"
+    prerequisites: ["navarasas"]
+    children: ["expression_techniques"]
+    
+  roudra:
+    name: "Roudra (Fury/Anger)"
+    description: "Portrayal of anger and fury"
+    prerequisites: ["navarasas"]
+    children: ["expression_techniques"]
+    
+  veera:
+    name: "Veera (Heroic/Valor)"
+    description: "Expression of heroism and valor"
+    prerequisites: ["navarasas"]
+    children: ["expression_techniques"]
+    
+  bhayanaka:
+    name: "Bhayanaka (Terror/Fear)"
+    description: "Portrayal of fear and terror"
+    prerequisites: ["navarasas"]
+    children: ["expression_techniques"]
+    
+  bibhatsa:
+    name: "Bibhatsa (Disgust/Odious)"
+    description: "Expression of disgust and repulsion"
+    prerequisites: ["navarasas"]
+    children: ["expression_techniques"]
+    
+  adbhuta:
+    name: "Adbhuta (Wonder/Amazement)"
+    description: "Portrayal of wonder and amazement"
+    prerequisites: ["navarasas"]
+    children: ["expression_techniques"]
+    
+  shaanta:
+    name: "Shaanta (Peace/Tranquility)"
+    description: "Expression of peace and tranquility"
+    prerequisites: ["navarasas"]
+    children: ["expression_techniques"]
+    
+  shringar:
+    name: "Shringar (Love/Romance)"
+    description: "Portrayal of love and romantic emotions"
+    prerequisites: ["navarasas"]
+    children: ["expression_techniques"]
+    
+  # Hand Gestures
+  mudras_intro:
+    name: "Mudras Introduction"
+    description: "Basic understanding of hand gestures in Kathakali"
+    prerequisites: ["kathakali_basics"]
+    children: ["asamyukta_mudras", "samyukta_mudras"]
+    
+  asamyukta_mudras:
+    name: "Asamyukta Mudras (Single Hand)"
+    description: "Single-hand gestures and their meanings"
+    prerequisites: ["mudras_intro"]
+    children: ["pataka", "tripataka", "ardhachandra", "kartarimukha", "mayura", "ardhapataka", "bhramara", "hamsasya", "hamsapaksha", "sandamsha", "mukula", "tamrachuda", "trishula", "kataka", "suchi", "chandrakala", "padmakosha", "sarpashirsha", "mrigashirsha", "simhamukha", "kangula", "alapadma", "chatura", "brahma"]
+    
+  samyukta_mudras:
+    name: "Samyukta Mudras (Double Hand)"  
+    description: "Double-hand gestures and their meanings"
+    prerequisites: ["mudras_intro", "asamyukta_mudras"]
+    children: ["anjali", "kapotam", "karkata", "swastika", "dola", "pushpaputa", "utsanga", "shivalinga", "katakavardhanam", "kartarimukhaswastika", "shakata", "shankha", "chakra", "samputa", "pasha", "kilaka", "matsya", "kurma", "varaha", "garuda", "nagabandha", "khatva", "bherunda"]
+    
+  # Performance Elements
+  performance_structure:
+    name: "Performance Structure"
+    description: "Understanding how a Kathakali performance is organized"
+    prerequisites: ["kathakali_basics"]
+    children: ["performance_segments", "accompaniment", "stage_conventions"]
+    
+  performance_segments:
+    name: "Performance Segments"
+    description: "Different parts of a Kathakali performance"
+    prerequisites: ["performance_structure"]
+    children: ["kelikottu", "todayam", "purappadu", "melappadam", "main_story"]
+    
+  # Music and Rhythm
+  music_basics:
+    name: "Kathakali Music Basics"
+    description: "Introduction to the musical elements of Kathakali"
+    prerequisites: ["kathakali_basics"]
+    children: ["instruments", "ragas", "rhythm_patterns"]
+    
+  instruments:
+    name: "Musical Instruments"
+    description: "Instruments used in Kathakali performances"
+    prerequisites: ["music_basics"]
+    children: ["chenda", "maddalam", "chengila", "ilathalam"]
+    
+  chenda:
+    name: "Chenda"
+    description: "The primary percussion instrument"
+    prerequisites: ["instruments"]
+    children: ["chenda_techniques"]
+    
+  maddalam:
+    name: "Maddalam"
+    description: "The barrel-shaped drum"
+    prerequisites: ["instruments"]  
+    children: ["maddalam_techniques"]
+    
+  # Stories and Literature
+  stories_introduction:
+    name: "Classical Stories Introduction"
+    description: "Understanding the source material for Kathakali stories"
+    prerequisites: ["kathakali_basics"]
+    children: ["ramayana_stories", "mahabharata_stories", "purana_stories"]
+    
+  ramayana_stories:
+    name: "Ramayana-based Stories"
+    description: "Kathakali stories derived from the Ramayana"
+    prerequisites: ["stories_introduction"]
+    children: ["story_analysis", "character_motivations"]
+    
+  mahabharata_stories:
+    name: "Mahabharata-based Stories"
+    description: "Kathakali stories derived from the Mahabharata"
+    prerequisites: ["stories_introduction"]
+    children: ["story_analysis", "character_motivations"]
+    
+  # Advanced Concepts
+  regional_variations:
+    name: "Regional Variations"
+    description: "Different styles and traditions across Kerala"
+    prerequisites: ["kathakali_origins"]
+    children: ["kalluvazhi", "kidangoor", "kaplingad"]
+    
+  character_identification:
+    name: "Character Identification Skills"
+    description: "Ability to identify characters by visual cues"
+    prerequisites: ["paccha_characters", "kathi_characters", "thaadi_characters", "minukku_characters", "kari_characters"]
+    children: ["advanced_analysis"]
+    
+  expression_techniques:
+    name: "Expression Techniques"
+    description: "Advanced understanding of how emotions are conveyed"
+    prerequisites: ["hasya", "karuna", "roudra", "veera", "bhayanaka", "bibhatsa", "adbhuta", "shaanta", "shringar"]
+    children: ["performance_analysis"]
+    
+  # Meta-skills
+  performance_analysis:
+    name: "Performance Analysis"
+    description: "Ability to analyze and critique Kathakali performances"
+    prerequisites: ["expression_techniques", "character_identification", "story_analysis"]
+    children: []
+    
+  story_analysis:
+    name: "Story Analysis"
+    description: "Understanding narrative structure and themes in Kathakali"
+    prerequisites: ["ramayana_stories", "mahabharata_stories"]
+    children: ["performance_analysis"]
+    
+  character_motivations:
+    name: "Character Psychology and Motivations"
+    description: "Deep understanding of character psychology in stories"
+    prerequisites: ["ramayana_stories", "mahabharata_stories"]
+    children: ["story_analysis"]
+    
+  advanced_analysis:
+    name: "Advanced Performance Analysis"
+    description: "Expert-level analysis and appreciation"
+    prerequisites: ["character_identification", "expression_techniques"]
+    children: []
+
+# Bloom's Taxonomy Levels
+bloom_levels:
+  0_unseen: "Unseen - No exposure to the concept"
+  1_remember: "Remember - Can recall basic facts and definitions"
+  2_understand: "Understand - Can explain concepts and their significance"  
+  3_apply: "Apply - Can use knowledge in practical contexts"
+  4_analyze: "Analyze - Can break down and examine complex relationships"
+
+# Common misconceptions that can be flagged
+common_misconceptions:
+  - "All Kathakali characters are gods or demons"
+  - "The green color always means the character is good"
+  - "Kathakali is the same as other Indian classical dances"
+  - "The elaborate makeup is just for decoration"
+  - "All performers can play any character type"
+  - "The stories are always religious"
+  - "Kathakali originated from temple rituals only"

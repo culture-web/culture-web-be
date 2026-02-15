@@ -8,6 +8,7 @@ const eventsRoutes = require('./routes/eventsRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const proficiencyRoutes = require('./routes/proficiencyRoutes');
 const { verifyAdminToken } = require('./middleware/authMiddleware');
 
 const app = express();
@@ -61,6 +62,9 @@ app.use('/api/chat', chatRoutes);
 
 // Authentication routes (public)
 app.use('/api/auth', authRoutes);
+
+// Proficiency tracking routes
+app.use('/api/proficiency', proficiencyRoutes);
 
 // Admin routes (protected) - renamed to obscure URL
 app.use('/api/k-manage', verifyAdminToken, adminRoutes);
