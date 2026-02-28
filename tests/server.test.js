@@ -33,9 +33,13 @@ jest.mock('../middleware/authMiddleware', () => ({
     next();
   },
   // Provide requireKbRoles used by routes (returns middleware)
-  requireKbRoles: (...allowedRoles) => (req, res, next) => {
+  requireKbRoles: () => (req, res, next) => {
     // Attach an admin user for tests so authorization passes
-    req.user = { id: 'admin-user-id', email: 'admin@example.com', role: 'admin' };
+    req.user = {
+      id: 'admin-user-id',
+      email: 'admin@example.com',
+      role: 'admin',
+    };
     return next();
   },
   JWT_SECRET: 'test-jwt-secret',
