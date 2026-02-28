@@ -1,0 +1,44 @@
+const Minio = require('minio');
+
+// Load environment variables with validation
+const { MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET } =
+  process.env;
+
+const MINIO_PORT = Number(process.env.MINIO_PORT || 9000);
+const MINIO_USE_SSL = process.env.MINIO_USE_SSL === 'true';
+
+// Validate required credentials (skip in test environment)
+if (process.env.NODE_ENV !== 'test') {
+  if (!MINIO_ENDPOINT || !MINIO_ACCESS_KEY || !MINIO_SECRET_KEY) {
+    throw new Error(
+      'Missing required MINIO environment variables. Please set: MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY',
+    );
+  }
+}
+
+const minioClient = new Minio.Client({
+  endPoint: MINIO_ENDPOINT || 'minio',
+  port: MINIO_PORT,
+  useSSL: MINIO_USE_SSL,
+  accessKey: MINIO_ACCESS_KEY || '',
+  secretKey: MINIO_SECRET_KEY || '',
+});
+
+const BUCKET_NAME = MINIO_BUCKET || 'knowledge-base';
+
+/**
+ * Ensure the bucket exists, create it if not
+ */
+const ensureBucket = async () => {
+  const exists = await minioClient.bucketExists(BUCKET_NAME);
+  if (!exists) {
+    await minioClient.makeBucket(BUCKET_NAME);
+    console.log(`[MinIO] Bucket "${BUCKET_NAME}" created`);
+  }
+};
+
+module.exports = {
+  minioClient,
+  BUCKET_NAME,
+  ensureBucket,
+};

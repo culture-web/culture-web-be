@@ -32,3 +32,30 @@ CREATE TABLE IF NOT EXISTS kb_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_kb_jobs_file_time
   ON kb_jobs (file_name, start_time DESC);
+
+-- Version history for knowledge base files
+CREATE TABLE IF NOT EXISTS knowledge_base_versions (
+  id BIGSERIAL PRIMARY KEY,
+  file_name TEXT NOT NULL,
+  version_number INTEGER NOT NULL,
+  action TEXT NOT NULL, -- ingest_text|ingest_pdf|parse|reembed|rename|set_enabled|delete|restore
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_kb_versions_file_time
+  ON knowledge_base_versions (file_name, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_kb_versions_file_version
+  ON knowledge_base_versions (file_name, version_number);
+
+-- Optional snapshots for version restore
+CREATE TABLE IF NOT EXISTS knowledge_base_version_snapshots (
+  id BIGSERIAL PRIMARY KEY,
+  version_id BIGINT NOT NULL REFERENCES knowledge_base_versions(id) ON DELETE CASCADE,
+  chunks JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_kb_version_snapshots_version
+  ON knowledge_base_version_snapshots (version_id);

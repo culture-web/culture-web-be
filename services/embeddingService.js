@@ -147,6 +147,7 @@ class EmbeddingService {
     query,
     limit = 5,
     similarityThreshold = 0.35,
+    scoringWeights = { vectorWeight: 0.7, fullTextWeight: 0.3 },
   ) {
     const embedding = await this.generateEmbedding(query);
 
@@ -155,6 +156,19 @@ class EmbeddingService {
 
     // Normalize query for keyword matching
     const queryLower = query.toLowerCase();
+    const vectorWeight = Number.isFinite(Number(scoringWeights?.vectorWeight))
+      ? Math.max(0, Math.min(1, Number(scoringWeights.vectorWeight)))
+      : 0.7;
+    const fullTextWeight = Number.isFinite(
+      Number(scoringWeights?.fullTextWeight),
+    )
+      ? Math.max(0, Math.min(1, Number(scoringWeights.fullTextWeight)))
+      : 0.3;
+    const totalWeight = vectorWeight + fullTextWeight;
+    const normalizedVectorWeight =
+      totalWeight > 0 ? vectorWeight / totalWeight : 0.7;
+    const normalizedFullTextWeight =
+      totalWeight > 0 ? fullTextWeight / totalWeight : 0.3;
 
     const sql = `
       SELECT 
@@ -189,16 +203,16 @@ class EmbeddingService {
             )
           ELSE 0
         END AS question_boost,
-        -- Combined similarity score
-        (1 - (embedding <=> $1::vector)) +
-        COALESCE(
+        -- Combined similarity score with adjustable vector/full-text weighting
+        ((1 - (embedding <=> $1::vector)) * $4) +
+        (COALESCE(
           (
             SELECT COUNT(*) * 0.1
             FROM jsonb_array_elements_text((metadata->'keywords')::jsonb) AS keyword
             WHERE $3 ILIKE '%' || keyword || '%'
           ), 0
-        ) +
-        COALESCE(
+        ) * $5) +
+        (COALESCE(
           (
             SELECT MAX(
               CASE 
@@ -209,7 +223,7 @@ class EmbeddingService {
             )
             FROM jsonb_array_elements_text((metadata->'questions')::jsonb) AS question
           ), 0
-        ) AS similarity
+        ) * $5) AS similarity
       FROM knowledge_base
       WHERE (metadata->>'enabled' IS NULL OR metadata->>'enabled' = 'true')
       ORDER BY similarity DESC
@@ -220,10 +234,17 @@ class EmbeddingService {
       embeddingVector,
       limit,
       queryLower,
+      normalizedVectorWeight,
+      normalizedFullTextWeight,
     ]);
-    return (rows || []).filter(
-      (r) => (r.similarity ?? 0) >= similarityThreshold,
-    );
+    return (rows || []).filter((r) => {
+      const baseSimilarity = Number(r.base_similarity ?? 0);
+      const combinedSimilarity = Number(r.similarity ?? 0);
+      return (
+        baseSimilarity >= similarityThreshold ||
+        combinedSimilarity >= similarityThreshold
+      );
+    });
   }
 
   /**
@@ -279,6 +300,7 @@ class EmbeddingService {
     similarityThreshold = 0.35,
     useReranking = true,
     strategy = 'embedding-based',
+    scoringWeights = { vectorWeight: 0.7, fullTextWeight: 0.3 },
   ) {
     try {
       // Stage 1: Vector search + boost scoring (get more candidates)
@@ -288,6 +310,7 @@ class EmbeddingService {
         query,
         candidateLimit,
         similarityThreshold,
+        scoringWeights,
       );
 
       if (!candidates || candidates.length === 0) {
@@ -337,6 +360,7 @@ class EmbeddingService {
         query,
         limit,
         similarityThreshold,
+        scoringWeights,
       );
     }
   }
