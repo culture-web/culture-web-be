@@ -159,16 +159,16 @@ class EmbeddingService {
     const vectorWeight = Number.isFinite(Number(scoringWeights?.vectorWeight))
       ? Math.max(0, Math.min(1, Number(scoringWeights.vectorWeight)))
       : 0.7;
-    const fullTextWeight = Number.isFinite(Number(scoringWeights?.fullTextWeight))
+    const fullTextWeight = Number.isFinite(
+      Number(scoringWeights?.fullTextWeight),
+    )
       ? Math.max(0, Math.min(1, Number(scoringWeights.fullTextWeight)))
       : 0.3;
     const totalWeight = vectorWeight + fullTextWeight;
-    const normalizedVectorWeight = totalWeight > 0
-      ? vectorWeight / totalWeight
-      : 0.7;
-    const normalizedFullTextWeight = totalWeight > 0
-      ? fullTextWeight / totalWeight
-      : 0.3;
+    const normalizedVectorWeight =
+      totalWeight > 0 ? vectorWeight / totalWeight : 0.7;
+    const normalizedFullTextWeight =
+      totalWeight > 0 ? fullTextWeight / totalWeight : 0.3;
 
     const sql = `
       SELECT 
@@ -240,8 +240,10 @@ class EmbeddingService {
     return (rows || []).filter((r) => {
       const baseSimilarity = Number(r.base_similarity ?? 0);
       const combinedSimilarity = Number(r.similarity ?? 0);
-      return baseSimilarity >= similarityThreshold
-        || combinedSimilarity >= similarityThreshold;
+      return (
+        baseSimilarity >= similarityThreshold ||
+        combinedSimilarity >= similarityThreshold
+      );
     });
   }
 

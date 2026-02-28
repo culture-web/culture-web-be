@@ -4,12 +4,15 @@ const localDbClient = require('../client/localDbClient');
 const ALLOWED_ROLES = new Set(['admin', 'editor', 'viewer']);
 
 const normalizeRole = (role) => {
-  const normalized = String(role || '').trim().toLowerCase();
+  const normalized = String(role || '')
+    .trim()
+    .toLowerCase();
   return ALLOWED_ROLES.has(normalized) ? normalized : null;
 };
 
 const hashPassword = (password) => {
   const salt = crypto.randomBytes(16).toString('hex');
+  // eslint-disable-next-line node/no-unsupported-features/node-builtins
   const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
   return `scrypt$${salt}$${hash}`;
 };
@@ -21,6 +24,7 @@ const verifyPassword = (password, storedHash) => {
     if (algo !== 'scrypt' || !salt || !hashHex) return false;
 
     const expected = Buffer.from(hashHex, 'hex');
+    // eslint-disable-next-line node/no-unsupported-features/node-builtins
     const actual = crypto.scryptSync(String(password), salt, expected.length);
     return crypto.timingSafeEqual(actual, expected);
   } catch (error) {

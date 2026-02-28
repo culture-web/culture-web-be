@@ -2,8 +2,11 @@
  * MinIO Storage Service
  * Replaces local disk storage with S3-compatible MinIO object storage
  */
-const { Readable } = require('stream');
-const { minioClient, BUCKET_NAME, ensureBucket } = require('../client/minioClient');
+const {
+  minioClient,
+  BUCKET_NAME,
+  ensureBucket,
+} = require('../client/minioClient');
 
 let bucketReady = false;
 
@@ -21,7 +24,11 @@ const init = async () => {
  * @param {string} contentType - MIME type (e.g. "application/pdf")
  * @returns {Promise<string>} The object name stored
  */
-const putObject = async (objectName, buffer, contentType = 'application/octet-stream') => {
+const putObject = async (
+  objectName,
+  buffer,
+  contentType = 'application/octet-stream',
+) => {
   await init();
   await minioClient.putObject(BUCKET_NAME, objectName, buffer, buffer.length, {
     'Content-Type': contentType,
@@ -89,7 +96,9 @@ const removeObjectsByPrefix = async (prefix) => {
 
   if (objectsList.length > 0) {
     await minioClient.removeObjects(BUCKET_NAME, objectsList);
-    console.log(`[MinIO] Deleted ${objectsList.length} object(s) with prefix: ${prefix}`);
+    console.log(
+      `[MinIO] Deleted ${objectsList.length} object(s) with prefix: ${prefix}`,
+    );
   }
 
   return objectsList.length;
@@ -186,7 +195,10 @@ const folderExists = async (folderName) => {
   const stream = minioClient.listObjects(BUCKET_NAME, `${folderName}/`, false);
   return new Promise((resolve, reject) => {
     let found = false;
-    stream.on('data', () => { found = true; stream.destroy(); });
+    stream.on('data', () => {
+      found = true;
+      stream.destroy();
+    });
     stream.on('end', () => resolve(found));
     stream.on('error', reject);
   });

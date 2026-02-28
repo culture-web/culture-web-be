@@ -1,12 +1,8 @@
 const Minio = require('minio');
 
 // Load environment variables with validation
-const {
-  MINIO_ENDPOINT,
-  MINIO_ACCESS_KEY,
-  MINIO_SECRET_KEY,
-  MINIO_BUCKET,
-} = process.env;
+const { MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET } =
+  process.env;
 
 const MINIO_PORT = Number(process.env.MINIO_PORT || 9000);
 const MINIO_USE_SSL = process.env.MINIO_USE_SSL === 'true';

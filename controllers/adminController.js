@@ -7,7 +7,8 @@
  * Handles document ingestion and knowledge base updates
  */
 const crypto = require('crypto');
-const storageService = require('../services/minioStorageService');
+// eslint-disable-next-line import/order
+const localDbClient = require('../client/localDbClient');
 
 /**
  * Advanced text splitter using LangChain RecursiveCharacterTextSplitter
@@ -24,12 +25,7 @@ const clampNumber = (value, min, max, fallback) => {
 };
 
 const getChunkingConfig = (input = {}) => {
-  const chunkSize = clampNumber(
-    input.chunkSize,
-    100,
-    4000,
-    DEFAULT_CHUNK_SIZE,
-  );
+  const chunkSize = clampNumber(input.chunkSize, 100, 4000, DEFAULT_CHUNK_SIZE);
   const maxOverlap = Math.max(0, chunkSize - 1);
   const chunkOverlap = clampNumber(
     input.chunkOverlap,
@@ -140,7 +136,7 @@ const recordFileVersion = async (
   metadata = {},
   options = {},
 ) => {
-  if (!fileName) return;
+  if (!fileName) return null;
   try {
     await ensureVersionHistoryTable();
     const versionNumber = await getNextVersionNumber(fileName);
@@ -153,7 +149,8 @@ const recordFileVersion = async (
 
     const versionId = rows?.[0]?.id;
     if (versionId && options.captureSnapshot) {
-      const chunks = options.snapshotChunks || await getFileChunksSnapshot(fileName);
+      const chunks =
+        options.snapshotChunks || (await getFileChunksSnapshot(fileName));
       await localDbClient.query(
         `INSERT INTO knowledge_base_version_snapshots (version_id, chunks)
          VALUES ($1, $2::jsonb)
@@ -168,7 +165,13 @@ const recordFileVersion = async (
   }
 };
 
-const ACTIVITY_ACTIONS = new Set(['parse', 'parse_failed', 'reembed', 'test', 'deploy']);
+const ACTIVITY_ACTIONS = new Set([
+  'parse',
+  'parse_failed',
+  'reembed',
+  'test',
+  'deploy',
+]);
 
 const renameFileVersionHistory = async (oldName, newName) => {
   if (!oldName || !newName || oldName === newName) return;
@@ -199,14 +202,12 @@ const renameFileVersionHistory = async (oldName, newName) => {
   }
 };
 
-
-
 // PDF parsing & OCR helpers
 const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
 const pdfConverter = require('pdf-img-convert');
 const embeddingService = require('../services/embeddingService');
-const localDbClient = require('../client/localDbClient');
+const storageService = require('../services/minioStorageService');
 const groqClient = require('../client/groqClient');
 const {
   ALLOWED_ROLES,
@@ -232,7 +233,11 @@ const normalizeSummaryShape = (raw = {}) => {
 };
 
 const heuristicSummaryFromChunks = (fileName, chunks) => {
-  const preview = chunks.map((c) => c.content).join(' ').replace(/\s+/g, ' ').trim();
+  const preview = chunks
+    .map((c) => c.content)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   const firstSentence = preview.slice(0, 420);
   const words = preview
     .toLowerCase()
@@ -339,17 +344,18 @@ const ocrPdfPages = async (buffer) => {
  */
 exports.ingestDocument = async (req, res) => {
   try {
-    const {
-      fileName,
-      text,
-      metadata = {},
-      chunkSize,
-      chunkOverlap,
-    } = req.body;
+    const { fileName, text, metadata = {}, chunkSize, chunkOverlap } = req.body;
 
     if (!fileName || !text) {
       return res.status(400).json({ error: 'fileName and text are required' });
     }
+
+    // Remove any existing parse jobs for this file since we're overwriting it
+    // (status will be recalculated once new ingestion completes).
+    await localDbClient.query(
+      'DELETE FROM kb_jobs WHERE LOWER(file_name) = LOWER($1);',
+      [fileName],
+    );
 
     const chunkingConfig = getChunkingConfig({ chunkSize, chunkOverlap });
 
@@ -468,8 +474,11 @@ exports.updatePage = async (req, res) => {
 exports.ingestPdf = async (req, res) => {
   try {
     const { file } = req;
-    const autoParse = String(req.body?.autoParse ?? 'true').toLowerCase() !== 'false';
-    const rerankerStrategy = String(req.body?.rerankerStrategy || 'embedding-based');
+    const autoParse =
+      String(req.body?.autoParse ?? 'true').toLowerCase() !== 'false';
+    const rerankerStrategy = String(
+      req.body?.rerankerStrategy || 'embedding-based',
+    );
     const chunkingConfig = getChunkingConfig(req.body || {});
     if (!file) {
       return res.status(400).json({ error: 'No PDF uploaded' });
@@ -478,6 +487,13 @@ exports.ingestPdf = async (req, res) => {
     const jobId = newJobId();
     const fileName = file.originalname;
     const { buffer } = file;
+
+    // Remove old parse jobs for this file, upload will create fresh state.
+    await localDbClient.query(
+      'DELETE FROM kb_jobs WHERE LOWER(file_name) = LOWER($1);',
+      [fileName],
+    );
+
     // Check if file already exists in database
     const existingFile = await localDbClient.query(
       'SELECT COUNT(*) as count FROM knowledge_base WHERE source_file = $1',
@@ -719,7 +735,8 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
       }));
 
     const combinedRows = [...processedRows, ...stagedRows].sort(
-      (a, b) => new Date(b.upload_date).getTime() - new Date(a.upload_date).getTime(),
+      (a, b) =>
+        new Date(b.upload_date).getTime() - new Date(a.upload_date).getTime(),
     );
 
     return res.status(200).json(combinedRows || []);
@@ -811,7 +828,9 @@ exports.deleteFolder = async (req, res) => {
     // Delete all objects under this prefix from MinIO
     let storageDeleted = 0;
     try {
-      storageDeleted = await storageService.removeObjectsByPrefix(`${folderName}/`);
+      storageDeleted = await storageService.removeObjectsByPrefix(
+        `${folderName}/`,
+      );
     } catch (storageError) {
       console.error('Failed to delete folder from MinIO:', storageError);
     }
@@ -1027,26 +1046,32 @@ exports.startParseFile = async (req, res) => {
           const totalPages = Math.max(1, pageTexts.length);
           for (let p = 0; p < pageTexts.length; p += 1) {
             const pageText = pageTexts[p];
-            if (!pageText || !pageText.trim()) continue;
-
-            const chunks = await splitTextIntoChunks(pageText, chunkingConfig);
-            for (let i = 0; i < chunks.length; i += 1) {
-              const result = await embeddingService.insertChunk(
-                localDbClient,
-                chunks[i],
-                fileName,
-                {
-                  page: p + 1,
-                  chunkIndex: i,
-                  chunkNumber: i + 1,
-                  chunkSize: chunkingConfig.chunkSize,
-                  chunkOverlap: chunkingConfig.chunkOverlap,
-                },
+            if (pageText && pageText.trim()) {
+              const chunks = await splitTextIntoChunks(
+                pageText,
+                chunkingConfig,
               );
-              if (result?.id) updated += 1;
+              for (let i = 0; i < chunks.length; i += 1) {
+                const result = await embeddingService.insertChunk(
+                  localDbClient,
+                  chunks[i],
+                  fileName,
+                  {
+                    page: p + 1,
+                    chunkIndex: i,
+                    chunkNumber: i + 1,
+                    chunkSize: chunkingConfig.chunkSize,
+                    chunkOverlap: chunkingConfig.chunkOverlap,
+                  },
+                );
+                if (result?.id) updated += 1;
+              }
             }
 
-            const progress = Math.min(95, 45 + Math.floor(((p + 1) / totalPages) * 50));
+            const progress = Math.min(
+              95,
+              45 + Math.floor(((p + 1) / totalPages) * 50),
+            );
             await localDbClient.query(
               `UPDATE kb_jobs SET progress = $2, last_message = $3 WHERE id = $1;`,
               [jobId, progress, `Processed page ${p + 1}/${totalPages}`],
@@ -1121,7 +1146,9 @@ exports.getFileStatus = async (req, res) => {
     const chunkCount = Number(chunkRows?.[0]?.chunk_count || 0);
 
     if (chunkCount === 0) {
-      return res.status(200).json({ status: 'idle', progress: 0, last_message: 'Not parsed yet' });
+      return res
+        .status(200)
+        .json({ status: 'idle', progress: 0, last_message: 'Not parsed yet' });
     }
 
     const { rows } = await localDbClient.query(
@@ -1140,32 +1167,58 @@ exports.getFileStatus = async (req, res) => {
   }
 };
 
+// -----------------------------------------------------------------------------
+// Administrative helpers
+// -----------------------------------------------------------------------------
+
+/**
+ * DELETE /admin/jobs
+ * Remove all job records from the database.  Useful when old/inconsistent jobs
+ * are polluting the system or during cleanup prior to rerunning ingestion.
+ * Requires an admin role.
+ */
+exports.clearJobs = async (req, res) => {
+  try {
+    const result = await localDbClient.query('DELETE FROM kb_jobs;');
+    console.log(`[JOBS] Cleared ${result.rowCount} job record(s)`);
+    return res.json({ deleted: result.rowCount });
+  } catch (error) {
+    console.error('Error clearing jobs:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 /**
  * DELETE /admin/knowledge-base/:fileName
  * Delete all chunks for a specific file
  */
 exports.deleteDocument = async (req, res) => {
   try {
-    const fileName = decodeURIComponent(req.params.fileName || '');
+    let fileName = decodeURIComponent(req.params.fileName || '');
+    fileName = String(fileName).trim();
 
     if (!fileName) {
       return res.status(400).json({ error: 'fileName is required' });
     }
 
+    // use case-insensitive matching to avoid problems with encoding/case
     const preDeleteInfo = await localDbClient.query(
       `SELECT COUNT(*)::int AS chunk_count, MIN(created_at) AS first_uploaded_at
        FROM knowledge_base
-       WHERE source_file = $1;`,
+       WHERE LOWER(source_file) = LOWER($1);`,
       [fileName],
     );
     const chunkCount = Number(preDeleteInfo.rows?.[0]?.chunk_count || 0);
     const preDeleteChunks = await getFileChunksSnapshot(fileName);
 
-    // Delete from database
-    const sql = `DELETE FROM knowledge_base WHERE source_file = $1;`;
+    // Delete from database (case-insensitive)
+    const sql = `DELETE FROM knowledge_base WHERE LOWER(source_file) = LOWER($1);`;
     const result = await localDbClient.query(sql, [fileName]);
 
-    await localDbClient.query('DELETE FROM kb_jobs WHERE file_name = $1;', [fileName]);
+    await localDbClient.query(
+      'DELETE FROM kb_jobs WHERE LOWER(file_name) = LOWER($1);',
+      [fileName],
+    );
 
     if (result.rowCount === 0) {
       console.warn(`[DELETE] No rows found for source_file: ${fileName}`);
@@ -1239,7 +1292,9 @@ exports.renameDocument = async (req, res) => {
         );
       } catch (storageError) {
         console.error(`[RENAME] Failed to rename file in MinIO:`, storageError);
-        return res.status(500).json({ error: 'Failed to rename file in storage' });
+        return res
+          .status(500)
+          .json({ error: 'Failed to rename file in storage' });
       }
     }
 
@@ -1377,13 +1432,16 @@ exports.getDocumentSummary = async (req, res) => {
 
     const remaining = rows.filter((row) => !usedIds.has(row.id));
     if (remaining.length > 0) {
-      const randomChunk = remaining[Math.floor(Math.random() * remaining.length)];
+      const randomChunk =
+        remaining[Math.floor(Math.random() * remaining.length)];
       addChunk(randomChunk);
     }
 
     const sampledContext = selected
       .map((chunk, index) => {
-        const page = chunk.metadata?.page ? ` (page ${chunk.metadata.page})` : '';
+        const page = chunk.metadata?.page
+          ? ` (page ${chunk.metadata.page})`
+          : '';
         return `Sample ${index + 1} [chunk:${chunk.id}]${page}:\n${String(chunk.content || '').slice(0, 1200)}`;
       })
       .join('\n\n');
@@ -1416,7 +1474,10 @@ exports.getDocumentSummary = async (req, res) => {
         summary = normalizeSummaryShape(parsed);
       }
     } catch (llmError) {
-      console.error('[SUMMARY] LLM summary generation failed:', llmError.message);
+      console.error(
+        '[SUMMARY] LLM summary generation failed:',
+        llmError.message,
+      );
     }
 
     if (!summary || !summary.executiveSummary) {
@@ -1433,7 +1494,9 @@ exports.getDocumentSummary = async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating document summary:', error);
-    return res.status(500).json({ error: 'Failed to generate document summary' });
+    return res
+      .status(500)
+      .json({ error: 'Failed to generate document summary' });
   }
 };
 
@@ -1464,7 +1527,9 @@ exports.getFileActivityHistory = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching file activity history:', error);
-    return res.status(500).json({ error: 'Failed to fetch file activity history' });
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch file activity history' });
   }
 };
 
@@ -1477,13 +1542,15 @@ exports.logFileActivity = async (req, res) => {
     const fileName = decodeURIComponent(req.params.fileName || '');
     const actionInput = String(req.body?.action || '').toLowerCase();
     const action = actionInput === 'reparse' ? 'reembed' : actionInput;
-    const metadata = req.body?.metadata && typeof req.body.metadata === 'object'
-      ? req.body.metadata
-      : {};
+    const metadata =
+      req.body?.metadata && typeof req.body.metadata === 'object'
+        ? req.body.metadata
+        : {};
 
     if (!fileName || !ACTIVITY_ACTIONS.has(action)) {
       return res.status(400).json({
-        error: 'Valid fileName and action are required (parse, reparse, test, deploy)',
+        error:
+          'Valid fileName and action are required (parse, reparse, test, deploy)',
       });
     }
 
@@ -1746,7 +1813,9 @@ exports.updateUserRole = async (req, res) => {
     }
 
     if (!ALLOWED_ROLES.has(String(role).trim().toLowerCase())) {
-      return res.status(400).json({ error: 'role must be one of: admin, editor, viewer' });
+      return res
+        .status(400)
+        .json({ error: 'role must be one of: admin, editor, viewer' });
     }
 
     const user = await updateKbUserRole(userId, role);
@@ -1775,7 +1844,9 @@ exports.resetUserPassword = async (req, res) => {
     const { newPassword } = req.body;
 
     if (!userId || !newPassword) {
-      return res.status(400).json({ error: 'userId and newPassword are required' });
+      return res
+        .status(400)
+        .json({ error: 'userId and newPassword are required' });
     }
 
     const user = await resetKbUserPasswordByAdmin(userId, newPassword);
@@ -1789,6 +1860,8 @@ exports.resetUserPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Error resetting user password:', error);
-    return res.status(500).json({ error: error.message || 'Failed to reset password' });
+    return res
+      .status(500)
+      .json({ error: error.message || 'Failed to reset password' });
   }
 };

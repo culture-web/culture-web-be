@@ -45,14 +45,18 @@ exports.login = async (req, res) => {
   }
 
   // Generate JWT token (expires in 24 hours)
-  const token = jwt.sign({
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    role: user.role,
-  }, JWT_SECRET, {
-    expiresIn: '24h',
-  });
+  const token = jwt.sign(
+    {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+    },
+    JWT_SECRET,
+    {
+      expiresIn: '24h',
+    },
+  );
 
   return res.json({
     success: true,
@@ -91,7 +95,11 @@ exports.changePassword = async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const changed = await changeOwnKbPassword(req.user.id, currentPassword, newPassword);
+    const changed = await changeOwnKbPassword(
+      req.user.id,
+      currentPassword,
+      newPassword,
+    );
     if (!changed) {
       return res.status(400).json({
         error: 'Password change failed',
@@ -101,6 +109,8 @@ exports.changePassword = async (req, res) => {
 
     return res.status(200).json({ success: true, message: 'Password updated' });
   } catch (error) {
-    return res.status(500).json({ error: error.message || 'Failed to change password' });
+    return res
+      .status(500)
+      .json({ error: error.message || 'Failed to change password' });
   }
 };

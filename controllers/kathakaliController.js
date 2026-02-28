@@ -425,7 +425,9 @@ exports.chatMudras = async (req, res) => {
 
     // RAG: Search local knowledge base with two-stage retrieval (vector + reranking)
     const thresholdValue = clampNumber(similarityThreshold, 0, 1, 0.35);
-    const resultLimit = Math.round(clampNumber(topN, 1, 20, Number(process.env.KB_RAG_TOP_K || 6)));
+    const resultLimit = Math.round(
+      clampNumber(topN, 1, 20, Number(process.env.KB_RAG_TOP_K || 6)),
+    );
     const vectorWeightValue = clampNumber(vectorWeight, 0, 1, 0.3);
     const fullTextWeightValue = clampNumber(
       fullTextWeight,
@@ -433,7 +435,10 @@ exports.chatMudras = async (req, res) => {
       1,
       Number((1 - vectorWeightValue).toFixed(2)),
     );
-    const multiTurnOptimizationValue = parseBoolean(multiTurnOptimization, true);
+    const multiTurnOptimizationValue = parseBoolean(
+      multiTurnOptimization,
+      true,
+    );
 
     let ragContext = '';
     let citations = [];
@@ -478,7 +483,10 @@ exports.chatMudras = async (req, res) => {
           if (knowledgeSource.endsWith('/')) {
             return source.startsWith(knowledgeSource);
           }
-          return source === knowledgeSource || source.startsWith(`${knowledgeSource}/`);
+          return (
+            source === knowledgeSource ||
+            source.startsWith(`${knowledgeSource}/`)
+          );
         });
       }
 
@@ -542,15 +550,25 @@ exports.chatMudras = async (req, res) => {
           usedInContext: selectedChunks.length,
           contextTokens: currentContextLength,
           confidenceAvg: selectedChunks.length
-            ? Number((selectedChunks.reduce((sum, chunk) => {
-              const score = chunk.combined_score || chunk.similarity || chunk.base_similarity || 0;
-              return sum + score;
-            }, 0) / selectedChunks.length).toFixed(4))
+            ? Number(
+                (
+                  selectedChunks.reduce((sum, chunk) => {
+                    const score =
+                      chunk.combined_score ||
+                      chunk.similarity ||
+                      chunk.base_similarity ||
+                      0;
+                    return sum + score;
+                  }, 0) / selectedChunks.length
+                ).toFixed(4),
+              )
             : null,
           chunks: selectedChunks.map((chunk, index) => {
             const content = chunk.content || '';
             const lowered = content.toLowerCase();
-            const matchedTerms = queryTerms.filter((term) => lowered.includes(term));
+            const matchedTerms = queryTerms.filter((term) =>
+              lowered.includes(term),
+            );
             return {
               id: index + 1,
               source: chunk.source_file,
