@@ -10,4 +10,7 @@ router.post('/login', authController.login);
 // Verify token endpoint (protected)
 router.get('/verify', verifyAdminToken, authController.verify);
 
+// Change own KB password (protected)
+router.post('/change-password', verifyAdminToken, authController.changePassword);
+
 module.exports = router;

@@ -4,29 +4,53 @@
  */
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../middleware/authMiddleware');
-
-// Admin credentials from environment variables
-const KB_USERNAME = process.env.KB_USERNAME || 'admin';
-const KB_PASSWORD = process.env.KB_PASSWORD || 'kathakalai2026'; // Change in production!
+const {
+  ensureDefaultAdmin,
+  getKbUserByIdentifier,
+  verifyPassword,
+  changeOwnKbPassword,
+} = require('../services/kbUserService');
 
 /**
  * Admin login endpoint
  * POST /api/auth/login
- * Body: { username, password }
+ * Body: { username, password } or { email, password }
  */
 exports.login = async (req, res) => {
-  const { username, password } = req.body;
+  const { username, email, password } = req.body;
+  const identifier = username || email;
 
-  // Validate credentials
-  if (username !== KB_USERNAME || password !== KB_PASSWORD) {
+  if (!identifier || !password) {
+    return res.status(400).json({
+      error: 'Missing credentials',
+      message: 'username/email and password are required',
+    });
+  }
+
+  await ensureDefaultAdmin();
+  const user = await getKbUserByIdentifier(identifier);
+  if (!user || !user.is_active) {
     return res.status(401).json({
       error: 'Invalid credentials',
-      message: 'Username or password is incorrect',
+      message: 'Username/email or password is incorrect',
+    });
+  }
+
+  const passwordValid = verifyPassword(password, user.password_hash);
+  if (!passwordValid) {
+    return res.status(401).json({
+      error: 'Invalid credentials',
+      message: 'Username/email or password is incorrect',
     });
   }
 
   // Generate JWT token (expires in 24 hours)
-  const token = jwt.sign({ username, role: 'admin' }, JWT_SECRET, {
+  const token = jwt.sign({
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+  }, JWT_SECRET, {
     expiresIn: '24h',
   });
 
@@ -34,7 +58,12 @@ exports.login = async (req, res) => {
     success: true,
     token,
     expiresIn: '24h',
-    user: { username, role: 'admin' },
+    user: {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+    },
   });
 };
 
@@ -49,3 +78,29 @@ exports.verify = (req, res) =>
     success: true,
     user: req.user,
   });
+
+/**
+ * Change own password (requires valid KB token)
+ * POST /api/auth/change-password
+ * Body: { currentPassword, newPassword }
+ */
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!req.user?.id) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const changed = await changeOwnKbPassword(req.user.id, currentPassword, newPassword);
+    if (!changed) {
+      return res.status(400).json({
+        error: 'Password change failed',
+        message: 'Current password is invalid',
+      });
+    }
+
+    return res.status(200).json({ success: true, message: 'Password updated' });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || 'Failed to change password' });
+  }
+};

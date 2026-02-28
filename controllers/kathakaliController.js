@@ -10,6 +10,22 @@ const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
 const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
 
+const clampNumber = (value, min, max, fallback) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, numeric));
+};
+
+const parseBoolean = (value, fallback = true) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return fallback;
+};
+
 // Helper function to classify based on the endpoint for single image
 const classifyImageSingle = async (req, res, apiEndpoint) => {
   try {
@@ -391,6 +407,13 @@ exports.chatMudras = async (req, res) => {
       characterData,
       expressionData,
       rerankerStrategy,
+      knowledgeSource,
+      systemPrompt,
+      similarityThreshold,
+      vectorWeight,
+      fullTextWeight,
+      topN,
+      multiTurnOptimization,
     } = req.body || {};
 
     if (!message) {
@@ -401,8 +424,35 @@ exports.chatMudras = async (req, res) => {
     const client = groqClient.getInstance();
 
     // RAG: Search local knowledge base with two-stage retrieval (vector + reranking)
+    const thresholdValue = clampNumber(similarityThreshold, 0, 1, 0.35);
+    const resultLimit = Math.round(clampNumber(topN, 1, 20, Number(process.env.KB_RAG_TOP_K || 6)));
+    const vectorWeightValue = clampNumber(vectorWeight, 0, 1, 0.3);
+    const fullTextWeightValue = clampNumber(
+      fullTextWeight,
+      0,
+      1,
+      Number((1 - vectorWeightValue).toFixed(2)),
+    );
+    const multiTurnOptimizationValue = parseBoolean(multiTurnOptimization, true);
+
     let ragContext = '';
     let citations = [];
+    let retrievalDebug = {
+      knowledgeSource: knowledgeSource || 'all',
+      strategy: rerankerStrategy || 'embedding-based',
+      totalRetrieved: 0,
+      usedInContext: 0,
+      contextTokens: 0,
+      confidenceAvg: null,
+      chunks: [],
+      settings: {
+        similarityThreshold: thresholdValue,
+        topN: resultLimit,
+        vectorWeight: vectorWeightValue,
+        fullTextWeight: fullTextWeightValue,
+        multiTurnOptimization: multiTurnOptimizationValue,
+      },
+    };
     try {
       // Use provided strategy or default to 'embedding-based'
       const strategy = rerankerStrategy || 'embedding-based';
@@ -411,15 +461,41 @@ exports.chatMudras = async (req, res) => {
         await embeddingService.searchLocalKnowledgeBaseWithReranking(
           localDb,
           message,
-          10, // Final result limit
-          0.35, // similarity threshold for stage 1
+          resultLimit, // Final result limit
+          thresholdValue, // similarity threshold for stage 1
           true, // Enable reranking
           strategy, // Pass selected reranking strategy
+          {
+            vectorWeight: vectorWeightValue,
+            fullTextWeight: fullTextWeightValue,
+          },
         );
 
-      if (similarChunks && similarChunks.length > 0) {
+      let filteredChunks = similarChunks || [];
+      if (knowledgeSource && knowledgeSource !== 'all') {
+        filteredChunks = filteredChunks.filter((chunk) => {
+          const source = chunk.source_file || '';
+          if (knowledgeSource.endsWith('/')) {
+            return source.startsWith(knowledgeSource);
+          }
+          return source === knowledgeSource || source.startsWith(`${knowledgeSource}/`);
+        });
+      }
+
+      // De-duplicate by source + page to reduce repetitive citations
+      const seenSourcePage = new Set();
+      filteredChunks = filteredChunks.filter((chunk) => {
+        const source = chunk.source_file || 'unknown';
+        const page = chunk.metadata?.page || 'na';
+        const key = `${source}::${page}`;
+        if (seenSourcePage.has(key)) return false;
+        seenSourcePage.add(key);
+        return true;
+      });
+
+      if (filteredChunks && filteredChunks.length > 0) {
         console.log(
-          `Local RAG found ${similarChunks.length} relevant chunk(s) (strategy: ${strategy})`,
+          `Local RAG found ${filteredChunks.length} relevant chunk(s) (strategy: ${strategy}, source: ${knowledgeSource || 'all'})`,
         );
 
         // Build context with smart truncation to avoid token limit
@@ -430,7 +506,7 @@ exports.chatMudras = async (req, res) => {
         // Take top chunks up to context length limit
         const selectedChunks = [];
         // eslint-disable-next-line no-restricted-syntax
-        for (const chunk of similarChunks) {
+        for (const chunk of filteredChunks) {
           const pageInfo = chunk.metadata?.page
             ? ` (Page ${chunk.metadata.page})`
             : '';
@@ -453,6 +529,42 @@ exports.chatMudras = async (req, res) => {
         console.log(
           `Using ${selectedChunks.length} chunks (context ~${currentContextLength} tokens)`,
         );
+
+        const queryTerms = (message || '')
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter((term) => term && term.length > 2);
+
+        retrievalDebug = {
+          knowledgeSource: knowledgeSource || 'all',
+          strategy,
+          totalRetrieved: filteredChunks.length,
+          usedInContext: selectedChunks.length,
+          contextTokens: currentContextLength,
+          confidenceAvg: selectedChunks.length
+            ? Number((selectedChunks.reduce((sum, chunk) => {
+              const score = chunk.combined_score || chunk.similarity || chunk.base_similarity || 0;
+              return sum + score;
+            }, 0) / selectedChunks.length).toFixed(4))
+            : null,
+          chunks: selectedChunks.map((chunk, index) => {
+            const content = chunk.content || '';
+            const lowered = content.toLowerCase();
+            const matchedTerms = queryTerms.filter((term) => lowered.includes(term));
+            return {
+              id: index + 1,
+              source: chunk.source_file,
+              page: chunk.metadata?.page || null,
+              excerpt: content.slice(0, 320),
+              matchedTerms: [...new Set(matchedTerms)].slice(0, 8),
+              baseSimilarity: chunk.base_similarity || null,
+              rerankerScore: chunk.reranker_score || null,
+              combinedScore: chunk.combined_score || chunk.similarity || null,
+              keywordBoost: chunk.keyword_boost || 0,
+              questionBoost: chunk.question_boost || 0,
+            };
+          }),
+        };
 
         // Build citations array with boost information
         citations = selectedChunks.map((chunk, index) => ({
@@ -479,6 +591,14 @@ exports.chatMudras = async (req, res) => {
         });
       } else {
         console.log('No relevant chunks found in local knowledge base');
+        retrievalDebug = {
+          ...retrievalDebug,
+          totalRetrieved: 0,
+          usedInContext: 0,
+          contextTokens: 0,
+          confidenceAvg: null,
+          chunks: [],
+        };
       }
     } catch (ragError) {
       console.error('Error searching local knowledge base:', ragError);
@@ -496,8 +616,12 @@ exports.chatMudras = async (req, res) => {
     let systemMessage =
       'You are a knowledgeable assistant about Kathakali and Indian classical dance forms. ';
 
+    if (typeof systemPrompt === 'string' && systemPrompt.trim().length > 0) {
+      systemMessage = systemPrompt.trim();
+    }
+
     if (ragContext) {
-      systemMessage += `Here is relevant information from the knowledge base to help answer the user's question:\n\n${ragContext}\n\nUse this context to provide accurate, cited answers. If the context is insufficient, use your knowledge to supplement.`;
+      systemMessage += `\n\nHere is relevant information from the knowledge base to help answer the user's question:\n\n${ragContext}\n\nUse this context to provide accurate, cited answers. If the context is insufficient, use your knowledge to supplement.`;
     } else {
       systemMessage +=
         'Help the user with information about Kathakali traditions, characters, expressions, and cultural significance.';
@@ -580,6 +704,7 @@ exports.chatMudras = async (req, res) => {
 
     // Add citations to response
     chatbotResponse.citations = citations;
+    chatbotResponse.retrieval = retrievalDebug;
 
     return res.status(200).json(chatbotResponse);
   } catch (error) {

@@ -130,6 +130,20 @@ const verifyAdminToken = (req, res, next) => {
   }
 };
 
+const requireKbRoles = (...allowedRoles) => (req, res, next) => {
+  const userRole = String(req.user?.role || '').toLowerCase();
+  const normalizedAllowed = allowedRoles.map((role) => String(role || '').toLowerCase());
+
+  if (!userRole || !normalizedAllowed.includes(userRole)) {
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Insufficient permissions for this action',
+    });
+  }
+
+  return next();
+};
+
 /**
  * Optional authentication middleware - extracts user info if token is present
  * but doesn't block the request if no token is provided. Used for endpoints
@@ -203,5 +217,6 @@ module.exports = {
   authenticateToken,
   optionalAuth,
   verifyAdminToken,
+  requireKbRoles,
   JWT_SECRET,
 };
