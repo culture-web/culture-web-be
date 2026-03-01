@@ -33,6 +33,11 @@ router.post(
   kathakaliController.chatMudras,
 );
 
+router.get(
+  '/source-download/:fileName',
+  kathakaliController.downloadMudrasSource,
+);
+
 router.post(
   '/generate-quiz-from-chat',
   kathakaliController.generateQuizFromChat,

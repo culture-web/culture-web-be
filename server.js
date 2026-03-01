@@ -1,7 +1,10 @@
 // server.js
 require('dotenv').config();
+const http = require('http');
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const { Server } = require('socket.io');
 const kathakaliRoutes = require('./routes/kathakaliRoutes');
 const uploadDataRoutes = require('./routes/uploadDataRoutes');
 const eventsRoutes = require('./routes/eventsRoutes');
@@ -10,8 +13,14 @@ const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const proficiencyRoutes = require('./routes/proficiencyRoutes');
 const { verifyAdminToken } = require('./middleware/authMiddleware');
+const { JWT_SECRET } = require('./middleware/authMiddleware');
+const {
+  ADMIN_NAMESPACE,
+  setSocketServer,
+} = require('./services/realtimeService');
 
 const app = express();
+const httpServer = http.createServer(app);
 const port = 3001; // Choose any available port
 
 // Secure CORS configuration with whitelisted origins
@@ -69,16 +78,70 @@ app.use('/api/proficiency', proficiencyRoutes);
 // Admin routes (protected) - renamed to obscure URL
 app.use('/api/k-manage', verifyAdminToken, adminRoutes);
 
+const io = new Server(httpServer, {
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+  },
+  pingInterval: 25000,
+  pingTimeout: 60000,
+});
+
+setSocketServer(io);
+
+const adminRealtime = io.of(ADMIN_NAMESPACE);
+
+adminRealtime.use((socket, next) => {
+  try {
+    const authToken = socket.handshake?.auth?.token;
+    const headerToken = socket.handshake?.headers?.authorization;
+    const rawToken = authToken || headerToken || '';
+    const token = String(rawToken).startsWith('Bearer ')
+      ? String(rawToken).slice(7)
+      : String(rawToken || '');
+
+    if (!token) {
+      return next(new Error('Unauthorized'));
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const role = String(decoded?.role || '').toLowerCase();
+    if (!['admin', 'editor', 'viewer'].includes(role)) {
+      return next(new Error('Forbidden'));
+    }
+
+    return next();
+  } catch (error) {
+    return next(new Error('Unauthorized'));
+  }
+});
+
+adminRealtime.on('connection', (socket) => {
+  socket.on('subscribe_file', (fileName) => {
+    const room = String(fileName || '').trim();
+    if (!room) return;
+    socket.join(`file:${room}`);
+  });
+
+  socket.on('unsubscribe_file', (fileName) => {
+    const room = String(fileName || '').trim();
+    if (!room) return;
+    socket.leave(`file:${room}`);
+  });
+});
+
 // Start the server
-const server = app.listen(port, () => {
+const server = httpServer.listen(port, () => {
   console.log('Server is running on port 3001');
 });
 
 const handleShutdown = () => {
   console.log('Shutting down gracefully');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
+  io.close(() => {
+    server.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
   });
 };
 

@@ -57,6 +57,8 @@ const validateObjectName = (name) => {
 
 // In-memory ingest job tracker (simple, non-persistent)
 const ingestJobs = new Map();
+let emitIngestJobStatus = () => {};
+let emitParseFileStatus = () => {};
 
 const newJobId = () => {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -70,6 +72,23 @@ const setJobStatus = (jobId, payload) => {
   const prev = ingestJobs.get(jobId) || {};
   const next = { ...prev, ...payload, updatedAt: new Date().toISOString() };
   ingestJobs.set(jobId, next);
+  emitIngestJobStatus(jobId, next);
+
+  if (next.fileName) {
+    const normalized = String(next.status || '').toLowerCase();
+    let mappedStatus = 'running';
+    if (normalized === 'completed') {
+      mappedStatus = 'completed';
+    } else if (normalized === 'failed') {
+      mappedStatus = 'failed';
+    }
+    emitParseFileStatus(next.fileName, {
+      status: mappedStatus,
+      progress: next.progress,
+      last_message: next.message || next.last_message,
+    });
+  }
+
   return next;
 };
 
@@ -205,9 +224,12 @@ const renameFileVersionHistory = async (oldName, newName) => {
 // PDF parsing & OCR helpers
 const pdfParse = require('pdf-parse');
 const Tesseract = require('tesseract.js');
-const pdfConverter = require('pdf-img-convert');
 const embeddingService = require('../services/embeddingService');
 const storageService = require('../services/minioStorageService');
+({
+  emitIngestJobStatus,
+  emitParseFileStatus,
+} = require('../services/realtimeService'));
 const groqClient = require('../client/groqClient');
 const {
   ALLOWED_ROLES,
@@ -298,9 +320,38 @@ const extractTextWithPdfParse = async (buffer) => {
  * OCR PDF pages using pdf-img-convert + Tesseract
  * Converts each page to PNG then runs OCR
  */
-const ocrPdfPages = async (buffer) => {
+const ocrPdfPages = async (buffer, options = {}) => {
+  const { onProgress } = options;
+  let pdfConverter;
+
+  try {
+    // eslint-disable-next-line global-require
+    pdfConverter = require('pdf-img-convert');
+  } catch (error) {
+    throw new Error(
+      'OCR dependency unavailable: install canvas/pdf-img-convert runtime dependencies',
+    );
+  }
+
+  const emitProgress = (payload) => {
+    if (typeof onProgress !== 'function') return;
+    try {
+      onProgress(payload || {});
+    } catch (error) {
+      console.warn('[OCR] Progress callback failed:', error?.message || error);
+    }
+  };
+
   try {
     console.log('[OCR] Converting PDF pages to images...');
+    emitProgress({
+      stage: 'converting',
+      message: 'Converting PDF pages to images',
+      currentPage: 0,
+      totalPages: 0,
+      progress: 0,
+    });
+
     // Convert PDF pages to PNG images (returns array of buffers)
     const pngPages = await pdfConverter.convert(buffer, {
       width: 2000, // High resolution for better OCR
@@ -309,27 +360,61 @@ const ocrPdfPages = async (buffer) => {
     });
 
     console.log(`[OCR] Converted ${pngPages.length} pages, starting OCR...`);
+    emitProgress({
+      stage: 'ocr',
+      message: `Converted ${pngPages.length} pages, starting OCR`,
+      currentPage: 0,
+      totalPages: pngPages.length,
+      progress: 0,
+    });
 
     const pageTexts = [];
     for (let i = 0; i < pngPages.length; i += 1) {
       const pngBuffer = pngPages[i];
       console.log(`[OCR] Processing page ${i + 1}/${pngPages.length}...`);
+      emitProgress({
+        stage: 'ocr',
+        message: `OCR page ${i + 1}/${pngPages.length}: 0%`,
+        currentPage: i + 1,
+        totalPages: pngPages.length,
+        progress: 0,
+      });
 
       // eslint-disable-next-line no-await-in-loop
       const { data: ocr } = await Tesseract.recognize(pngBuffer, 'eng', {
         logger: (m) => {
           if (m.status === 'recognizing text') {
-            console.log(
-              `[OCR] Page ${i + 1}: ${Math.round(m.progress * 100)}%`,
-            );
+            const pageProgress = Math.round((m.progress || 0) * 100);
+            console.log(`[OCR] Page ${i + 1}: ${pageProgress}%`);
+            emitProgress({
+              stage: 'ocr',
+              message: `OCR page ${i + 1}/${pngPages.length}: ${pageProgress}%`,
+              currentPage: i + 1,
+              totalPages: pngPages.length,
+              progress: Number(m.progress || 0),
+            });
           }
         },
       });
 
       pageTexts.push((ocr.text || '').trim());
+      emitProgress({
+        stage: 'ocr',
+        message: `OCR page ${i + 1}/${pngPages.length}: 100%`,
+        currentPage: i + 1,
+        totalPages: pngPages.length,
+        progress: 1,
+      });
     }
 
     console.log('[OCR] Completed all pages');
+    emitProgress({
+      stage: 'ocr',
+      message: 'Completed OCR for all pages',
+      currentPage: pngPages.length,
+      totalPages: pngPages.length,
+      progress: 1,
+    });
     return pageTexts;
   } catch (error) {
     console.error('[OCR] Error during OCR processing:', error);
@@ -371,7 +456,7 @@ exports.ingestDocument = async (req, res) => {
         localDbClient,
         chunks[i],
         fileName,
-        { ...metadata, chunkIndex: i },
+        { ...metadata, chunkIndex: i, enabled: false },
       );
       insertedIds.push(result.id);
     }
@@ -572,47 +657,94 @@ exports.ingestPdf = async (req, res) => {
           setJobStatus(jobId, {
             status: 'ocr',
             progress: 30,
-            message: 'Running OCR (may take a while)',
+            message: 'Initializing OCR (may take a while)',
           });
-          pageTexts = await ocrPdfPages(buffer);
+          pageTexts = await ocrPdfPages(buffer, {
+            onProgress: ({
+              stage,
+              message,
+              currentPage,
+              totalPages,
+              progress,
+            }) => {
+              const pages = Math.max(1, Number(totalPages || 1));
+              const pageIndex = Math.max(0, Number(currentPage || 0));
+              const pageProgress = Math.max(
+                0,
+                Math.min(1, Number(progress || 0)),
+              );
+
+              if (stage === 'converting') {
+                setJobStatus(jobId, {
+                  status: 'ocr',
+                  progress: 30,
+                  message: message || 'Converting PDF pages to images',
+                });
+                return;
+              }
+
+              const ocrOverall =
+                (Math.max(0, pageIndex - 1) + pageProgress) / pages;
+              const mappedProgress = Math.round(30 + ocrOverall * 40); // 30-70
+              setJobStatus(jobId, {
+                status: 'ocr',
+                progress: Math.max(30, Math.min(70, mappedProgress)),
+                message:
+                  message ||
+                  `OCR page ${Math.max(1, Math.min(pageIndex, pages))}/${pages}: ${Math.round(pageProgress * 100)}%`,
+              });
+            },
+          });
         } else {
           pageTexts = [extracted];
         }
 
         const insertedIds = [];
         const totalPages = pageTexts.length || 1;
+        const chunkingBase = !extracted || extracted.length < 50 ? 70 : 40;
+        const chunkingRange = !extracted || extracted.length < 50 ? 20 : 50;
         for (let p = 0; p < pageTexts.length; p += 1) {
           const pageText = pageTexts[p];
-          if (!pageText || pageText.trim().length === 0) continue; // eslint-disable-line no-continue
-
-          const pageBase = 40 + Math.floor((p / totalPages) * 40); // 40-80% during chunking
-          // eslint-disable-next-line no-await-in-loop
-          const chunks = await splitTextIntoChunks(pageText, chunkingConfig);
-          for (let i = 0; i < chunks.length; i += 1) {
+          if (pageText && pageText.trim().length > 0) {
             // eslint-disable-next-line no-await-in-loop
-            const result = await embeddingService.insertChunk(
-              localDbClient,
-              chunks[i],
-              fileName,
-              {
-                page: p + 1,
-                chunkIndex: i,
-                chunkNumber: i + 1,
-                rerankerStrategy,
-                chunkSize: chunkingConfig.chunkSize,
-                chunkOverlap: chunkingConfig.chunkOverlap,
-              },
-            );
-            insertedIds.push(result.id);
+            const chunks = await splitTextIntoChunks(pageText, chunkingConfig);
+            for (let i = 0; i < chunks.length; i += 1) {
+              // eslint-disable-next-line no-await-in-loop
+              const result = await embeddingService.insertChunk(
+                localDbClient,
+                chunks[i],
+                fileName,
+                {
+                  page: p + 1,
+                  chunkIndex: i,
+                  chunkNumber: i + 1,
+                  rerankerStrategy,
+                  chunkSize: chunkingConfig.chunkSize,
+                  chunkOverlap: chunkingConfig.chunkOverlap,
+                  enabled: false,
+                },
+              );
+              insertedIds.push(result.id);
+            }
           }
           const pageProgress =
-            pageBase + Math.min(40, Math.floor(((p + 1) / totalPages) * 40));
+            chunkingBase +
+            Math.min(
+              chunkingRange,
+              Math.floor(((p + 1) / totalPages) * chunkingRange),
+            );
           setJobStatus(jobId, {
             status: 'embedding',
-            progress: Math.min(90, pageProgress),
+            progress: Math.min(95, pageProgress),
             message: `Embedding page ${p + 1}/${totalPages}`,
           });
         }
+
+        setJobStatus(jobId, {
+          status: 'embedding',
+          progress: 95,
+          message: 'Finalizing parse',
+        });
 
         setJobStatus(jobId, {
           status: 'completed',
@@ -731,7 +863,7 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
         name: obj.name,
         upload_date: obj.lastModified || new Date().toISOString(),
         chunk_number: 0,
-        enabled: true,
+        enabled: false,
       }));
 
     const combinedRows = [...processedRows, ...stagedRows].sort(
@@ -999,6 +1131,14 @@ exports.startParseFile = async (req, res) => {
       [fileName],
     );
     const jobId = jobRows[0].id;
+    emitParseFileStatus(fileName, {
+      id: jobId,
+      file_name: fileName,
+      status: 'running',
+      progress: 0,
+      last_message: 'Starting parse',
+      start_time: new Date().toISOString(),
+    });
 
     // Run job asynchronously (fire-and-forget)
     (async () => {
@@ -1019,23 +1159,98 @@ exports.startParseFile = async (req, res) => {
             `UPDATE kb_jobs SET progress = $2, last_message = $3 WHERE id = $1;`,
             [jobId, 10, 'Loading file from storage'],
           );
+          emitParseFileStatus(fileName, {
+            id: jobId,
+            file_name: fileName,
+            status: 'running',
+            progress: 10,
+            last_message: 'Loading file from storage',
+          });
 
           const fileBuffer = await storageService.getObject(fileName);
           let pageTexts = [];
           const lowerName = String(fileName || '').toLowerCase();
+          let usedOcr = false;
 
           if (lowerName.endsWith('.pdf')) {
             await localDbClient.query(
               `UPDATE kb_jobs SET progress = $2, last_message = $3 WHERE id = $1;`,
               [jobId, 20, 'Extracting PDF text'],
             );
+            emitParseFileStatus(fileName, {
+              id: jobId,
+              file_name: fileName,
+              status: 'running',
+              progress: 20,
+              last_message: 'Extracting PDF text',
+            });
             const extracted = await extractTextWithPdfParse(fileBuffer);
             if (!extracted || extracted.length < 50) {
+              usedOcr = true;
               await localDbClient.query(
                 `UPDATE kb_jobs SET progress = $2, last_message = $3 WHERE id = $1;`,
                 [jobId, 35, 'Running OCR'],
               );
-              pageTexts = await ocrPdfPages(fileBuffer);
+              emitParseFileStatus(fileName, {
+                id: jobId,
+                file_name: fileName,
+                status: 'running',
+                progress: 35,
+                last_message: 'Running OCR',
+              });
+              pageTexts = await ocrPdfPages(fileBuffer, {
+                onProgress: async ({
+                  stage,
+                  message,
+                  currentPage,
+                  totalPages,
+                  progress,
+                }) => {
+                  const pages = Math.max(1, Number(totalPages || 1));
+                  const pageIndex = Math.max(0, Number(currentPage || 0));
+                  const pageProgress = Math.max(
+                    0,
+                    Math.min(1, Number(progress || 0)),
+                  );
+
+                  if (stage === 'converting') {
+                    await localDbClient.query(
+                      `UPDATE kb_jobs SET progress = $2, last_message = $3 WHERE id = $1;`,
+                      [jobId, 35, message || 'Converting PDF pages to images'],
+                    );
+                    emitParseFileStatus(fileName, {
+                      id: jobId,
+                      file_name: fileName,
+                      status: 'running',
+                      progress: 35,
+                      last_message: message || 'Converting PDF pages to images',
+                    });
+                    return;
+                  }
+
+                  const ocrOverall =
+                    (Math.max(0, pageIndex - 1) + pageProgress) / pages;
+                  const mappedProgress = Math.round(35 + ocrOverall * 40); // 35-75
+                  await localDbClient.query(
+                    `UPDATE kb_jobs SET progress = $2, last_message = $3 WHERE id = $1;`,
+                    [
+                      jobId,
+                      Math.max(35, Math.min(75, mappedProgress)),
+                      message ||
+                        `OCR page ${Math.max(1, Math.min(pageIndex, pages))}/${pages}: ${Math.round(pageProgress * 100)}%`,
+                    ],
+                  );
+                  emitParseFileStatus(fileName, {
+                    id: jobId,
+                    file_name: fileName,
+                    status: 'running',
+                    progress: Math.max(35, Math.min(75, mappedProgress)),
+                    last_message:
+                      message ||
+                      `OCR page ${Math.max(1, Math.min(pageIndex, pages))}/${pages}: ${Math.round(pageProgress * 100)}%`,
+                  });
+                },
+              });
             } else {
               pageTexts = [extracted];
             }
@@ -1044,6 +1259,8 @@ exports.startParseFile = async (req, res) => {
           }
 
           const totalPages = Math.max(1, pageTexts.length);
+          const chunkingBase = usedOcr ? 75 : 45;
+          const chunkingRange = usedOcr ? 20 : 50;
           for (let p = 0; p < pageTexts.length; p += 1) {
             const pageText = pageTexts[p];
             if (pageText && pageText.trim()) {
@@ -1062,6 +1279,7 @@ exports.startParseFile = async (req, res) => {
                     chunkNumber: i + 1,
                     chunkSize: chunkingConfig.chunkSize,
                     chunkOverlap: chunkingConfig.chunkOverlap,
+                    enabled: false,
                   },
                 );
                 if (result?.id) updated += 1;
@@ -1070,12 +1288,19 @@ exports.startParseFile = async (req, res) => {
 
             const progress = Math.min(
               95,
-              45 + Math.floor(((p + 1) / totalPages) * 50),
+              chunkingBase + Math.floor(((p + 1) / totalPages) * chunkingRange),
             );
             await localDbClient.query(
               `UPDATE kb_jobs SET progress = $2, last_message = $3 WHERE id = $1;`,
               [jobId, progress, `Processed page ${p + 1}/${totalPages}`],
             );
+            emitParseFileStatus(fileName, {
+              id: jobId,
+              file_name: fileName,
+              status: 'running',
+              progress,
+              last_message: `Processed page ${p + 1}/${totalPages}`,
+            });
           }
         } else {
           const total = rows.length || 1;
@@ -1095,12 +1320,27 @@ exports.startParseFile = async (req, res) => {
               `UPDATE kb_jobs SET progress = $2, last_message = $3 WHERE id = $1;`,
               [jobId, progress, `Updated ${updated}/${total} chunks`],
             );
+            emitParseFileStatus(fileName, {
+              id: jobId,
+              file_name: fileName,
+              status: 'running',
+              progress,
+              last_message: `Updated ${updated}/${total} chunks`,
+            });
           }
         }
         await localDbClient.query(
-          `UPDATE kb_jobs SET status = 'completed', end_time = NOW(), last_message = 'Completed' WHERE id = $1;`,
+          `UPDATE kb_jobs SET status = 'completed', progress = 100, end_time = NOW(), last_message = 'Completed' WHERE id = $1;`,
           [jobId],
         );
+        emitParseFileStatus(fileName, {
+          id: jobId,
+          file_name: fileName,
+          status: 'completed',
+          progress: 100,
+          last_message: 'Completed',
+          end_time: new Date().toISOString(),
+        });
         await recordFileVersion(
           fileName,
           'parse',
@@ -1116,6 +1356,14 @@ exports.startParseFile = async (req, res) => {
           `UPDATE kb_jobs SET status = 'failed', end_time = NOW(), last_message = $2 WHERE id = $1;`,
           [jobId, e.message || 'Failed'],
         );
+        emitParseFileStatus(fileName, {
+          id: jobId,
+          file_name: fileName,
+          status: 'failed',
+          progress: 100,
+          last_message: e.message || 'Failed',
+          end_time: new Date().toISOString(),
+        });
         await recordFileVersion(fileName, 'parse_failed', {
           reason: e.message || 'Failed',
         });
@@ -1139,6 +1387,16 @@ exports.getFileStatus = async (req, res) => {
     if (!fileName) {
       return res.status(400).json({ error: 'fileName is required' });
     }
+
+    const { rows } = await localDbClient.query(
+      `SELECT id, file_name, status, progress, start_time, end_time, last_message
+       FROM kb_jobs WHERE file_name = $1 ORDER BY start_time DESC LIMIT 1;`,
+      [fileName],
+    );
+    if (rows && rows.length > 0) {
+      return res.status(200).json(rows[0]);
+    }
+
     const { rows: chunkRows } = await localDbClient.query(
       'SELECT COUNT(*)::int AS chunk_count FROM knowledge_base WHERE source_file = $1;',
       [fileName],
@@ -1151,16 +1409,9 @@ exports.getFileStatus = async (req, res) => {
         .json({ status: 'idle', progress: 0, last_message: 'Not parsed yet' });
     }
 
-    const { rows } = await localDbClient.query(
-      `SELECT id, file_name, status, progress, start_time, end_time, last_message
-       FROM kb_jobs WHERE file_name = $1 ORDER BY start_time DESC LIMIT 1;`,
-      [fileName],
-    );
-    if (!rows || rows.length === 0) {
-      return res.status(200).json({ status: 'idle', progress: 0 });
-    }
-    const job = rows[0];
-    return res.status(200).json(job);
+    return res
+      .status(200)
+      .json({ status: 'completed', progress: 100, last_message: 'Completed' });
   } catch (error) {
     console.error('Error getting job status:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -1590,6 +1841,44 @@ exports.getFilePdf = async (req, res) => {
   } catch (error) {
     console.error('Error serving PDF:', error);
     return res.status(500).json({ error: 'Failed to serve PDF' });
+  }
+};
+
+// Download file from MinIO storage (force download instead of inline display)
+exports.downloadFile = async (req, res) => {
+  try {
+    const fileName = decodeURIComponent(req.params.fileName);
+    validateObjectName(fileName);
+
+    // Check if file exists in MinIO
+    const exists = await storageService.objectExists(fileName);
+    if (!exists) {
+      return res.status(404).json({ error: 'File not found in storage' });
+    }
+
+    // Read file from MinIO
+    const fileBuffer = await storageService.getObject(fileName);
+
+    // Determine content type based on file extension
+    let contentType = 'application/octet-stream';
+    if (fileName.toLowerCase().endsWith('.pdf')) {
+      contentType = 'application/pdf';
+    } else if (fileName.toLowerCase().endsWith('.txt')) {
+      contentType = 'text/plain';
+    } else if (fileName.toLowerCase().endsWith('.json')) {
+      contentType = 'application/json';
+    }
+
+    // Extract just the filename (remove path if present)
+    const basename = fileName.split('/').pop() || fileName;
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${basename}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    return res.status(200).send(fileBuffer);
+  } catch (error) {
+    console.error('Error downloading file:', error);
+    return res.status(500).json({ error: 'Failed to download file' });
   }
 };
 
