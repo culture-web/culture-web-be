@@ -9,6 +9,14 @@ const apiConfig = require('../apiconfig/apiConfig');
 const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
 const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
+const storageService = require('../services/minioStorageService');
+
+const validateObjectName = (name) => {
+  if (!name || name.includes('..') || name.startsWith('/')) {
+    throw new Error('Invalid file path');
+  }
+  return name;
+};
 
 const clampNumber = (value, min, max, fallback) => {
   const numeric = Number(value);
@@ -733,6 +741,48 @@ exports.chatMudras = async (req, res) => {
     }
 
     return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Public download for cited knowledge-base source files (used by Learn page chat)
+exports.downloadMudrasSource = async (req, res) => {
+  try {
+    const fileName = decodeURIComponent(req.params.fileName || '');
+    validateObjectName(fileName);
+
+    const { rows } = await localDb.query(
+      'SELECT 1 FROM knowledge_base WHERE source_file = $1 LIMIT 1;',
+      [fileName],
+    );
+
+    if (!rows || rows.length === 0) {
+      return res
+        .status(404)
+        .json({ error: 'Source file not found in knowledge base' });
+    }
+
+    const exists = await storageService.objectExists(fileName);
+    if (!exists) {
+      return res
+        .status(404)
+        .json({ error: 'Source file not found in storage' });
+    }
+
+    const fileBuffer = await storageService.getObject(fileName);
+    let contentType = 'application/octet-stream';
+    const lowerName = fileName.toLowerCase();
+    if (lowerName.endsWith('.pdf')) contentType = 'application/pdf';
+    else if (lowerName.endsWith('.txt')) contentType = 'text/plain';
+    else if (lowerName.endsWith('.json')) contentType = 'application/json';
+
+    const basename = fileName.split('/').pop() || fileName;
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${basename}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    return res.status(200).send(fileBuffer);
+  } catch (error) {
+    console.error('Error downloading mudras source file:', error);
+    return res.status(500).json({ error: 'Failed to download source file' });
   }
 };
 

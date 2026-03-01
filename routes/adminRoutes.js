@@ -116,6 +116,7 @@ router.post(
 );
 router.get('/knowledge-base/:fileName/chunks', adminController.getFileChunks);
 router.get('/knowledge-base/:fileName/pdf', adminController.getFilePdf);
+router.get('/knowledge-base/:fileName/download', adminController.downloadFile);
 router.put(
   '/chunks/:chunkId',
   requireKbRoles('admin', 'editor'),
