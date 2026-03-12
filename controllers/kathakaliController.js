@@ -928,3 +928,101 @@ Return ONLY the JSON array, no additional text.`;
     return res.status(500).json({ error: 'Failed to generate quiz' });
   }
 };
+
+/**
+ * Generate adaptive quiz from user's proficiency gaps
+ * GET /api/kathakali/generate-adaptive-quiz
+ */
+exports.generateAdaptiveQuiz = async (req, res) => {
+  try {
+    const { user } = req;  // From authenticateToken middleware
+    const userId = user.id;
+    
+    console.log(`[ADAPTIVE QUIZ] Generating for user: ${userId}`);
+    
+    // 1. Get user's proficiency details (teammate's endpoint logic reused)
+    const { data: proficiencyStates, error } = await supabase
+      .from('user_proficiency_state')
+      .select('*')
+      .eq('user_id', userId);
+    
+    if (error || !proficiencyStates || proficiencyStates.length === 0) {
+      return res.status(404).json({ 
+        error: 'No proficiency data found. Chat more to build knowledge profile!' 
+      });
+    }
+    
+    // 2. Transform to knowledge gaps (GPT schema teammate wants)
+    const knowledgeGaps = proficiencyStates
+      .filter(state => 
+        state.bloom_level !== '4_analyze' || state.misconception_flag
+      )
+      .map(state => ({
+        topic: state.node_id.split('_')[0],           // "characters"
+        sub_topic: state.node_id,                     // "kathi_character"
+        status: 'gap',
+        gap_type: state.misconception_flag ? 'misconception' : 
+                  state.bloom_level === '0_unseen' ? 'missing_data' : 'shallow',
+        blooms_level: state.bloom_level,
+        detected_misconception: state.last_evidence || null,
+        evidence_quote: state.last_evidence
+      }));
+    
+    console.log(`[ADAPTIVE QUIZ] Found ${knowledgeGaps.length} gaps:`, knowledgeGaps.slice(0, 2));
+    
+    if (knowledgeGaps.length === 0) {
+      return res.json({ 
+        questions: [],
+        message: '🎉 Perfect proficiency! No gaps found. Try advanced topics.'
+      });
+    }
+    
+    // 3. Generate quiz (reuse your existing Groq logic!)
+    const client = groqClient.getInstance();
+    const count = 5;
+    
+    const prompt = `Kathakali Knowledge Gaps (generate ${count} targeted MCQs):
+
+${JSON.stringify(knowledgeGaps, null, 2)}
+
+Rules by gap_type:
+- "misconception": Directly correct detected_misconception
+- "missing_data": Basic definition/identification (bloom_level based)
+- "shallow": "Why/How" to deepen understanding
+
+Return ONLY JSON array (same format as generate-quiz-from-chat):
+[{"id":1,"question":"...","options":["A","B","C","D"],"correctAnswer":"A","explanation":"..."}]`;
+    
+    const response = await client.chat.completions.create({
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+      messages: [
+        {
+          role: 'system',
+          content: 'Kathakali quiz generator. Analyze gaps → create precise questions. JSON only.',
+        },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 2000,
+      temperature: 0.7,
+    });
+    
+    let quizData = response.choices[0].message.content
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim();
+    
+    const questions = JSON.parse(quizData);
+    
+    console.log(`[ADAPTIVE QUIZ] Generated ${questions.length} questions`);
+    
+    res.json({ 
+      questions, 
+      gaps_count: knowledgeGaps.length,
+      knowledgeGaps  // Bonus: show user their gaps!
+    });
+    
+  } catch (error) {
+    console.error('[ADAPTIVE QUIZ] Error:', error);
+    res.status(500).json({ error: 'Failed to generate adaptive quiz' });
+  }
+};
