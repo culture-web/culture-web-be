@@ -935,92 +935,103 @@ Return ONLY the JSON array, no additional text.`;
  */
 exports.generateAdaptiveQuiz = async (req, res) => {
   try {
-    const { user } = req;  // From authenticateToken middleware
+    const { user } = req;
     const userId = user.id;
-    
+
     console.log(`[ADAPTIVE QUIZ] Generating for user: ${userId}`);
-    
-    // 1. Get user's proficiency details (teammate's endpoint logic reused)
+
+    // 1. Fetch all proficiency states for this user from DB
     const { data: proficiencyStates, error } = await supabase
       .from('user_proficiency_state')
       .select('*')
       .eq('user_id', userId);
-    
-    if (error || !proficiencyStates || proficiencyStates.length === 0) {
-      return res.status(404).json({ 
-        error: 'No proficiency data found. Chat more to build knowledge profile!' 
+
+    if (error) {
+      console.error('[ADAPTIVE QUIZ] Supabase error:', error);
+      return res.status(500).json({ error: 'Failed to fetch proficiency data' });
+    }
+
+    if (!proficiencyStates || proficiencyStates.length === 0) {
+      return res.status(404).json({
+        error: 'No proficiency data found. Chat more to build your knowledge profile!'
       });
     }
-    
-    // 2. Transform to knowledge gaps (GPT schema teammate wants)
-    const knowledgeGaps = proficiencyStates
-      .filter(state => 
-        state.bloom_level !== '4_analyze' || state.misconception_flag
-      )
-      .map(state => ({
-        topic: state.node_id.split('_')[0],           // "characters"
-        sub_topic: state.node_id,                     // "kathi_character"
-        status: 'gap',
-        gap_type: state.misconception_flag ? 'misconception' : 
-                  state.bloom_level === '0_unseen' ? 'missing_data' : 'shallow',
-        blooms_level: state.bloom_level,
-        detected_misconception: state.last_evidence || null,
-        evidence_quote: state.last_evidence
-      }));
-    
-    console.log(`[ADAPTIVE QUIZ] Found ${knowledgeGaps.length} gaps:`, knowledgeGaps.slice(0, 2));
-    
-    if (knowledgeGaps.length === 0) {
-      return res.json({ 
-        questions: [],
-        message: '🎉 Perfect proficiency! No gaps found. Try advanced topics.'
-      });
-    }
-    
-    // 3. Generate quiz (reuse your existing Groq logic!)
+
+    console.log(`[ADAPTIVE QUIZ] Found ${proficiencyStates.length} tracked concepts`);
+
+    // 2. Randomly pick up to 5 concepts from ALL tracked concepts (no filtering)
+    const shuffled = proficiencyStates.sort(() => Math.random() - 0.5);
+    const selectedConcepts = shuffled.slice(0, 5);
+
+    console.log(`[ADAPTIVE QUIZ] Selected ${selectedConcepts.length} random concepts:`,
+      selectedConcepts.map(g => `${g.node_id}(${g.bloom_level})`));
+
+    // 3. Build descriptors to send to AI
+    const conceptDescriptors = selectedConcepts.map(state => ({
+      concept: state.node_id,
+      bloom_level: state.bloom_level,
+      misconception: state.misconception_flag,
+      evidence: state.last_evidence || null,
+    }));
+
+    // 4. Generate exactly 5 questions using GROQ
     const client = groqClient.getInstance();
-    const count = 5;
-    
-    const prompt = `Kathakali Knowledge Gaps (generate ${count} targeted MCQs):
+    const targetCount = 5;
 
-${JSON.stringify(knowledgeGaps, null, 2)}
+    const prompt = `You are a Kathakali teacher. A student has the following knowledge profile. Generate exactly ${targetCount} multiple-choice questions.
 
-Rules by gap_type:
-- "misconception": Directly correct detected_misconception
-- "missing_data": Basic definition/identification (bloom_level based)
-- "shallow": "Why/How" to deepen understanding
+STUDENT'S KNOWLEDGE PROFILE:
+${JSON.stringify(conceptDescriptors, null, 2)}
 
-Return ONLY JSON array (same format as generate-quiz-from-chat):
-[{"id":1,"question":"...","options":["A","B","C","D"],"correctAnswer":"A","explanation":"..."}]`;
-    
+RULES:
+- There are ${selectedConcepts.length} concept(s). If less than ${targetCount}, generate multiple questions per concept to reach exactly ${targetCount} total.
+- When generating multiple questions for the same concept, each question must ask about a DIFFERENT aspect of that concept.
+- Match question difficulty strictly to bloom_level:
+    "0_unseen"    → Easy. Simple definition or identification. Example: "What is X?"
+    "1_remember"  → Easy-Medium. Basic recall. Example: "What does X represent?"
+    "2_understand"→ Medium. Explanation. Example: "Why does X have Y characteristic?"
+    "3_apply"     → Medium-Hard. Scenario-based. Example: "In this situation, which would...?"
+    "4_analyze"   → Hard. Critical analysis or comparison. Example: "What is the key difference between X and Y, and why does it matter?"
+- If misconception = true: Write a question that directly corrects the misunderstanding shown in evidence.
+- Provide exactly 4 options per question.
+
+Return ONLY a valid JSON array, no extra text:
+[{"id":1,"question":"...","options":["Pacha","Kathi","Minukku","Kari"],"correctAnswer":"Pacha","explanation":"..."}]`;
+
     const response = await client.chat.completions.create({
       model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
       messages: [
         {
           role: 'system',
-          content: 'Kathakali quiz generator. Analyze gaps → create precise questions. JSON only.',
+          content: 'You are a Kathakali quiz generator. Output only valid JSON arrays. No markdown, no extra text.',
         },
-        { role: 'user', content: prompt }
+        { role: 'user', content: prompt },
       ],
       max_tokens: 2000,
       temperature: 0.7,
     });
-    
+
     let quizData = response.choices[0].message.content
       .replace(/```json\n?/g, '')
       .replace(/```\n?/g, '')
       .trim();
-    
-    const questions = JSON.parse(quizData);
-    
-    console.log(`[ADAPTIVE QUIZ] Generated ${questions.length} questions`);
-    
-    res.json({ 
-      questions, 
-      gaps_count: knowledgeGaps.length,
-      knowledgeGaps  // Bonus: show user their gaps!
+
+    let questions;
+    try {
+      questions = JSON.parse(quizData);
+    } catch (parseError) {
+      console.error('[ADAPTIVE QUIZ] Failed to parse AI response:', quizData);
+      return res.status(500).json({ error: 'Failed to parse quiz from AI response' });
+    }
+
+    console.log(`[ADAPTIVE QUIZ] Generated ${questions.length} questions from ${selectedConcepts.length} concepts`);
+
+    res.json({
+      questions,
+      total_tracked: proficiencyStates.length,
+      selected_concepts: conceptDescriptors,
     });
-    
+
   } catch (error) {
     console.error('[ADAPTIVE QUIZ] Error:', error);
     res.status(500).json({ error: 'Failed to generate adaptive quiz' });
