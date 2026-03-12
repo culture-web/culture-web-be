@@ -1,4 +1,8 @@
 const express = require('express');
+const {
+  authenticateToken,    
+  optionalAuth,           
+} = require('../middleware/authMiddleware');  
 const multer = require('multer');
 const make = require('../middleware/makeMulterMiddleware');
 
@@ -41,6 +45,12 @@ router.get(
 router.post(
   '/generate-quiz-from-chat',
   kathakaliController.generateQuizFromChat,
+);
+
+router.get(
+  '/generate-adaptive-quiz', 
+  authenticateToken, 
+  kathakaliController.generateAdaptiveQuiz
 );
 
 module.exports = router;
