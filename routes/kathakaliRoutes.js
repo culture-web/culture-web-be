@@ -47,7 +47,6 @@ router.post(
   kathakaliController.generateQuizFromChat,
 );
 
-// Adaptive quiz from proficiency gaps (requires auth)
 router.get(
   '/generate-adaptive-quiz', 
   authenticateToken, 

@@ -940,7 +940,7 @@ exports.generateAdaptiveQuiz = async (req, res) => {
 
     console.log(`[ADAPTIVE QUIZ] Generating for user: ${userId}`);
 
-    // 1. Fetch all proficiency states for this user from DB
+    // Fetch all proficiency states for this user from DB
     const { data: proficiencyStates, error } = await supabase
       .from('user_proficiency_state')
       .select('*')
@@ -959,14 +959,14 @@ exports.generateAdaptiveQuiz = async (req, res) => {
 
     console.log(`[ADAPTIVE QUIZ] Found ${proficiencyStates.length} tracked concepts`);
 
-    // 2. Randomly pick up to 5 concepts from ALL tracked concepts (no filtering)
+    // Randomly pick up to 5 concepts from ALL tracked concepts
     const shuffled = proficiencyStates.sort(() => Math.random() - 0.5);
     const selectedConcepts = shuffled.slice(0, 5);
 
     console.log(`[ADAPTIVE QUIZ] Selected ${selectedConcepts.length} random concepts:`,
       selectedConcepts.map(g => `${g.node_id}(${g.bloom_level})`));
 
-    // 3. Build descriptors to send to AI
+    // Build descriptors to send to AI
     const conceptDescriptors = selectedConcepts.map(state => ({
       concept: state.node_id,
       bloom_level: state.bloom_level,
@@ -974,7 +974,7 @@ exports.generateAdaptiveQuiz = async (req, res) => {
       evidence: state.last_evidence || null,
     }));
 
-    // 4. Generate exactly 5 questions using GROQ
+    // Generate exactly 5 questions using GROQ
     const client = groqClient.getInstance();
     const targetCount = 5;
 
