@@ -7,6 +7,13 @@ const supabase = require('../client/supabaseClient');
 const localDb = require('../client/localDbClient');
 const apiConfig = require('../apiconfig/apiConfig');
 const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
+const {
+  clampNumber,
+  parseBoolean,
+  bloomToNumber,
+  numberToBloom,
+  validBloomLevels,
+} = require('../utils/kathakaliUtils');
 const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
 const storageService = require('../services/minioStorageService');
@@ -17,22 +24,6 @@ const validateObjectName = (name) => {
     throw new Error('Invalid file path');
   }
   return name;
-};
-
-const clampNumber = (value, min, max, fallback) => {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return fallback;
-  return Math.min(max, Math.max(min, numeric));
-};
-
-const parseBoolean = (value, fallback = true) => {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'true') return true;
-    if (normalized === 'false') return false;
-  }
-  return fallback;
 };
 
 // Helper function to classify based on the endpoint for single image
@@ -1136,14 +1127,6 @@ JSON format:
       return res.status(500).json({ error: 'Failed to persist quiz session' });
     }
 
-    const validBloomLevels = new Set([
-      '0_unseen',
-      '1_remember',
-      '2_understand',
-      '3_apply',
-      '4_analyze',
-    ]);
-
     const questionRows = (Array.isArray(questions) ? questions : []).map(
       (q) => {
         const conceptId = q?.concept_id;
@@ -1403,28 +1386,6 @@ exports.submitQuiz = async (req, res) => {
       '[QUIZ SUBMIT] Loaded existing proficiency states count:',
       Array.isArray(existingStates) ? existingStates.length : 0,
     );
-
-    const bloomToNumber = (bloomLevel) => {
-      const map = {
-        '0_unseen': 0,
-        '1_remember': 1,
-        '2_understand': 2,
-        '3_apply': 3,
-        '4_analyze': 4,
-      };
-      return map[bloomLevel] ?? 0;
-    };
-
-    const numberToBloom = (n) => {
-      const map = {
-        0: '0_unseen',
-        1: '1_remember',
-        2: '2_understand',
-        3: '3_apply',
-        4: '4_analyze',
-      };
-      return map[n] || '0_unseen';
-    };
 
     const stateByConcept = new Map(
       (existingStates || []).map((s) => [s.node_id, s]),

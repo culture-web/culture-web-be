@@ -574,6 +574,8 @@ Return [] only if message is completely unrelated to Kathakali.`;
     children.forEach((childId) => neighbors.add(childId));
 
     // Add prerequisites (concepts this one depends on)
+    // This ensures that even if prerequisites weren't encountered in chat,
+    // they become discoverable when the user masters a central/advanced concept
     const prerequisites = this.curriculumService.getPrerequisites(conceptId);
     prerequisites.forEach((prereqId) => neighbors.add(prereqId));
 
