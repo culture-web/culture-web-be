@@ -7,31 +7,26 @@ const supabase = require('../client/supabaseClient');
 const localDb = require('../client/localDbClient');
 const apiConfig = require('../apiconfig/apiConfig');
 const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
+const {
+  clampNumber,
+  parseBoolean,
+  bloomToNumber,
+  numberToBloom,
+  validBloomLevels,
+} = require('../utils/kathakaliUtils');
+const CurriculumService = require('../services/curriculumService');
+
+const curriculumService = new CurriculumService();
 const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
 const storageService = require('../services/minioStorageService');
+const ProficiencyAssessmentService = require('../services/proficiencyAssessmentService');
 
 const validateObjectName = (name) => {
   if (!name || name.includes('..') || name.startsWith('/')) {
     throw new Error('Invalid file path');
   }
   return name;
-};
-
-const clampNumber = (value, min, max, fallback) => {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return fallback;
-  return Math.min(max, Math.max(min, numeric));
-};
-
-const parseBoolean = (value, fallback = true) => {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'true') return true;
-    if (normalized === 'false') return false;
-  }
-  return fallback;
 };
 
 // Helper function to classify based on the endpoint for single image
@@ -948,31 +943,95 @@ exports.generateAdaptiveQuiz = async (req, res) => {
 
     if (error) {
       console.error('[ADAPTIVE QUIZ] Supabase error:', error);
-      return res.status(500).json({ error: 'Failed to fetch proficiency data' });
+      return res
+        .status(500)
+        .json({ error: 'Failed to fetch proficiency data' });
     }
 
     if (!proficiencyStates || proficiencyStates.length === 0) {
       return res.status(404).json({
-        error: 'No proficiency data found. Chat more to build your knowledge profile!'
+        error:
+          'No proficiency data found. Chat more to build your knowledge profile!',
       });
     }
 
-    console.log(`[ADAPTIVE QUIZ] Found ${proficiencyStates.length} tracked concepts`);
+    console.log(
+      `[ADAPTIVE QUIZ] Found ${proficiencyStates.length} tracked concepts`,
+    );
 
-    // Randomly pick up to 5 concepts from ALL tracked concepts
-    const shuffled = proficiencyStates.sort(() => Math.random() - 0.5);
-    const selectedConcepts = shuffled.slice(0, 5);
+    // Prioritize concepts with misconceptions, then fill with random selection
+    const misconceptionConcepts = proficiencyStates.filter(
+      (state) => state.misconception_flag,
+    );
+    const nonMisconceptionConcepts = proficiencyStates.filter(
+      (state) => !state.misconception_flag,
+    );
 
-    console.log(`[ADAPTIVE QUIZ] Selected ${selectedConcepts.length} random concepts:`,
-      selectedConcepts.map(g => `${g.node_id}(${g.bloom_level})`));
+    console.log(
+      `[ADAPTIVE QUIZ] Misconception concepts: ${misconceptionConcepts.length}, Non-misconception: ${nonMisconceptionConcepts.length}`,
+    );
 
-    // Build descriptors to send to AI
-    const conceptDescriptors = selectedConcepts.map(state => ({
-      concept: state.node_id,
-      bloom_level: state.bloom_level,
-      misconception: state.misconception_flag,
-      evidence: state.last_evidence || null,
-    }));
+    // Select up to 5: prioritize misconceptions, then random from others
+    const selectedConcepts = [];
+    selectedConcepts.push(...misconceptionConcepts); // Add all misconception concepts first
+    if (selectedConcepts.length < 5) {
+      const remainingSlots = 5 - selectedConcepts.length;
+      const shuffledNonMisconception = nonMisconceptionConcepts.sort(
+        () => Math.random() - 0.5,
+      );
+      selectedConcepts.push(
+        ...shuffledNonMisconception.slice(0, remainingSlots),
+      );
+    }
+
+    console.log(
+      `[ADAPTIVE QUIZ] Selected ${selectedConcepts.length} concepts (prioritizing misconceptions):`,
+      selectedConcepts.map(
+        (g) =>
+          `${g.node_id}(${g.bloom_level}, misconception: ${g.misconception_flag})`,
+      ),
+    );
+
+    // Helper to get next Bloom level (mathematically controlled elevation)
+    const getNextBloomLevel = (currentLevel) => {
+      const levels = [
+        '0_unseen',
+        '1_remember',
+        '2_understand',
+        '3_apply',
+        '4_analyze',
+      ];
+      const currentIndex = levels.indexOf(currentLevel);
+      if (currentIndex === -1 || currentIndex >= levels.length - 1) {
+        return currentLevel;
+      }
+      return levels[currentIndex + 1];
+    };
+
+    // Build descriptors with potential elevation (confidence-based probability)
+    const conceptDescriptors = selectedConcepts.map((state) => {
+      // Elevate if: no misconception, not at max level, AND confidence-based probability
+      const meetsConditions =
+        !state.misconception_flag && state.bloom_level !== '4_analyze';
+      const confidence = state.last_confidence || 0;
+      // Use confidence as probability (clamped 10%-90% to avoid extremes)
+      const elevationProbability = Math.max(0.1, Math.min(0.9, confidence));
+      const randomChance = Math.random() < elevationProbability;
+      const canElevate = meetsConditions && randomChance;
+      const targetLevel = canElevate
+        ? getNextBloomLevel(state.bloom_level)
+        : state.bloom_level;
+      console.log(
+        `[ADAPTIVE QUIZ] Concept ${state.node_id}: current=${state.bloom_level}, confidence=${confidence}, misconception=${state.misconception_flag}, meetsConditions=${meetsConditions}, elevationProb=${elevationProbability.toFixed(2)}, randomChance=${randomChance}, target=${targetLevel} (${canElevate ? 'elevated' : 'consolidation'})`,
+      );
+      return {
+        concept: state.node_id,
+        current_bloom_level: state.bloom_level,
+        target_bloom_level: targetLevel, // Use this for question difficulty
+        misconception: state.misconception_flag,
+        evidence: state.last_evidence || null,
+      };
+    });
 
     // Generate exactly 5 questions using GROQ
     const client = groqClient.getInstance();
@@ -986,7 +1045,7 @@ ${JSON.stringify(conceptDescriptors, null, 2)}
 RULES:
 - There are ${selectedConcepts.length} concept(s). If less than ${targetCount}, generate multiple questions per concept to reach exactly ${targetCount} total.
 - When generating multiple questions for the same concept, each question must ask about a DIFFERENT aspect of that concept.
-- Match question difficulty strictly to bloom_level:
+- Match question difficulty strictly to target_bloom_level (not current_bloom_level):
     "0_unseen"    → Easy. Simple definition or identification. Example: "What is X?"
     "1_remember"  → Easy-Medium. Basic recall. Example: "What does X represent?"
     "2_understand"→ Medium. Explanation. Example: "Why does X have Y characteristic?"
@@ -995,23 +1054,45 @@ RULES:
 - If misconception = true: Write a question that directly corrects the misunderstanding shown in evidence.
 - Provide exactly 4 options per question.
 
-Return ONLY a valid JSON array, no extra text:
-[{"id":1,"question":"...","options":["Pacha","Kathi","Minukku","Kari"],"correctAnswer":"Pacha","explanation":"..."}]`;
+Return ONLY a valid JSON array, no extra text. Every item MUST include these fields:
+- id (number)
+- concept_id (string): must be one of the student's concept values (exactly)
+- target_level (string): must match the student's target_bloom_level for that concept
+- misconception_target (boolean): true if misconception=true for that concept
+- question (string)
+- options (array of 4 strings)
+- correctAnswer (string): must exactly match one of the options
+- explanation (string)
+
+JSON format:
+[
+  {
+    "id": 1,
+    "concept_id": "paccha_characters",
+    "target_level": "2_understand",
+    "misconception_target": false,
+    "question": "...",
+    "options": ["A", "B", "C", "D"],
+    "correctAnswer": "B",
+    "explanation": "..."
+  }
+]`;
 
     const response = await client.chat.completions.create({
       model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
       messages: [
         {
           role: 'system',
-          content: 'You are a Kathakali quiz generator. Output only valid JSON arrays. No markdown, no extra text.',
+          content:
+            'You are a Kathakali quiz generator. Output only valid JSON arrays. No markdown, no extra text.',
         },
         { role: 'user', content: prompt },
       ],
-      max_tokens: 2000,
-      temperature: 0.7,
+      max_tokens: 3000,
+      temperature: 0.5,
     });
 
-    let quizData = response.choices[0].message.content
+    const quizData = response.choices[0].message.content
       .replace(/```json\n?/g, '')
       .replace(/```\n?/g, '')
       .trim();
@@ -1021,19 +1102,511 @@ Return ONLY a valid JSON array, no extra text:
       questions = JSON.parse(quizData);
     } catch (parseError) {
       console.error('[ADAPTIVE QUIZ] Failed to parse AI response:', quizData);
-      return res.status(500).json({ error: 'Failed to parse quiz from AI response' });
+      return res
+        .status(500)
+        .json({ error: 'Failed to parse quiz from AI response' });
     }
 
-    console.log(`[ADAPTIVE QUIZ] Generated ${questions.length} questions from ${selectedConcepts.length} concepts`);
+    console.log(
+      `[ADAPTIVE QUIZ] Generated ${questions.length} questions from ${selectedConcepts.length} concepts`,
+    );
 
-    res.json({
-      questions,
-      total_tracked: proficiencyStates.length,
-      selected_concepts: conceptDescriptors,
+    // Persist quiz session + questions so submission can be graded deterministically
+    const { data: quizSession, error: quizSessionError } = await supabase
+      .from('quiz_session')
+      .insert({
+        user_id: userId,
+        source: 'adaptive',
+        selected_concepts: conceptDescriptors,
+      })
+      .select('id, created_at')
+      .single();
+
+    if (quizSessionError) {
+      console.error(
+        '[ADAPTIVE QUIZ] Failed to create quiz session:',
+        quizSessionError,
+      );
+      return res.status(500).json({ error: 'Failed to persist quiz session' });
+    }
+
+    const questionRows = (Array.isArray(questions) ? questions : []).map(
+      (q) => {
+        const conceptId = q?.concept_id;
+        const targetLevel = q?.target_level;
+
+        if (!conceptId || !targetLevel || !validBloomLevels.has(targetLevel)) {
+          return null;
+        }
+
+        return {
+          quiz_id: quizSession.id,
+          display_id: Number(q.id) || null,
+          concept_id: conceptId,
+          target_level: targetLevel,
+          misconception_target: Boolean(q.misconception_target),
+          question: String(q.question || ''),
+          options: Array.isArray(q.options) ? q.options : [],
+          correct_answer: String(q.correctAnswer || ''),
+          explanation: String(q.explanation || ''),
+        };
+      },
+    );
+
+    const filteredQuestionRows = questionRows.filter(
+      (row) =>
+        row &&
+        row.question &&
+        Array.isArray(row.options) &&
+        row.options.length === 4 &&
+        row.correct_answer,
+    );
+
+    if (filteredQuestionRows.length === 0) {
+      console.error(
+        '[ADAPTIVE QUIZ] No valid questions to persist:',
+        questions,
+      );
+      return res
+        .status(500)
+        .json({ error: 'Quiz generation returned invalid questions' });
+    }
+
+    const { data: insertedQuestions, error: insertedQuestionsError } =
+      await supabase
+        .from('quiz_question')
+        .insert(filteredQuestionRows)
+        .select(
+          'id, display_id, concept_id, target_level, misconception_target, question, options, explanation, correct_answer',
+        );
+
+    if (insertedQuestionsError) {
+      console.error(
+        '[ADAPTIVE QUIZ] Failed to persist quiz questions:',
+        insertedQuestionsError,
+      );
+      return res
+        .status(500)
+        .json({ error: 'Failed to persist quiz questions' });
+    }
+
+    const responseQuestions = (insertedQuestions || [])
+      .sort((a, b) => (a.display_id || 0) - (b.display_id || 0))
+      .map((q) => ({
+        backendQuestionId: q.id,
+        displayId: q.display_id,
+        correctAnswer: q.correct_answer,
+        explanation: q.explanation,
+        question: q.question,
+        options: q.options,
+      }));
+
+    return res.json({
+      quizId: quizSession.id,
+      createdAt: quizSession.created_at,
+      questions: responseQuestions,
+      totalTracked: proficiencyStates.length,
+      selectedConcepts: conceptDescriptors,
     });
-
   } catch (error) {
     console.error('[ADAPTIVE QUIZ] Error:', error);
-    res.status(500).json({ error: 'Failed to generate adaptive quiz' });
+    return res.status(500).json({ error: 'Failed to generate adaptive quiz' });
+  }
+};
+
+/**
+ * Submit answers for a quiz session and update user proficiency states.
+ * POST /api/kathakali/quiz/:quizId/submit
+ * Body: { answers: Array<{question_id: string, selectedAnswer: string}> }
+ */
+exports.submitQuiz = async (req, res) => {
+  try {
+    const { user } = req;
+    const userId = user.id;
+    const { quizId } = req.params;
+    const { answers } = req.body;
+
+    console.log('[QUIZ SUBMIT] Incoming submission');
+    console.log(
+      '[QUIZ SUBMIT] answers length:',
+      Array.isArray(answers) ? answers.length : null,
+    );
+
+    if (!quizId) {
+      console.warn('[QUIZ SUBMIT] Validation failed: quizId missing');
+      return res.status(400).json({ error: 'quizId is required' });
+    }
+
+    if (!Array.isArray(answers) || answers.length === 0) {
+      console.warn(
+        '[QUIZ SUBMIT] Validation failed: answers array is required. Received:',
+        {
+          answersIsArray: Array.isArray(answers),
+          answersLength: Array.isArray(answers) ? answers.length : null,
+          bodyKeys:
+            req.body && typeof req.body === 'object'
+              ? Object.keys(req.body)
+              : null,
+        },
+      );
+      return res.status(400).json({ error: 'answers array is required' });
+    }
+
+    const { data: session, error: sessionError } = await supabase
+      .from('quiz_session')
+      .select('id, user_id, submitted_at')
+      .eq('id', quizId)
+      .single();
+
+    if (sessionError) {
+      console.error(
+        '[QUIZ SUBMIT] Failed to fetch quiz_session:',
+        sessionError,
+      );
+    }
+
+    if (sessionError || !session) {
+      return res.status(404).json({ error: 'Quiz session not found' });
+    }
+
+    if (String(session.user_id) !== String(userId)) {
+      console.warn('[QUIZ SUBMIT] Forbidden: quiz belongs to different user');
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // Fetch questions for grading
+    const getAnswerQuestionId = (answer) => answer?.backendQuestionId;
+    const getSelectedAnswer = (answer) => answer?.answer;
+
+    const questionIds = answers
+      .map((a) => getAnswerQuestionId(a))
+      .filter((id) => Boolean(id));
+
+    console.log('[QUIZ SUBMIT] Parsed questionIds:', questionIds);
+
+    const { data: questions, error: questionsError } = await supabase
+      .from('quiz_question')
+      .select(
+        'id, concept_id, target_level, misconception_target, question, options, correct_answer, explanation',
+      )
+      .eq('quiz_id', quizId)
+      .in('id', questionIds);
+
+    if (questionsError) {
+      console.error(
+        '[QUIZ SUBMIT] Failed to fetch quiz questions:',
+        questionsError,
+      );
+      return res.status(500).json({ error: 'Failed to fetch quiz questions' });
+    }
+
+    console.log(
+      '[QUIZ SUBMIT] Loaded questions count:',
+      Array.isArray(questions) ? questions.length : 0,
+    );
+
+    const questionById = new Map((questions || []).map((q) => [q.id, q]));
+
+    const results = answers
+      .map((a) => {
+        const questionId = a.backendQuestionId;
+        const q = questionById.get(questionId);
+        if (!q) return null;
+
+        const selectedAnswer = String(getSelectedAnswer(a) || '');
+        const correctAnswer = String(q.correct_answer || '');
+        const isCorrect = selectedAnswer === correctAnswer;
+
+        return {
+          question_id: q.id,
+          concept_id: q.concept_id,
+          target_level: q.target_level,
+          misconception_target: Boolean(q.misconception_target),
+          selectedAnswer,
+          correctAnswer,
+          isCorrect,
+          question: q.question,
+          explanation: q.explanation,
+        };
+      })
+      .filter((r) => r);
+
+    console.log('[QUIZ SUBMIT] Graded results count:', results.length);
+
+    if (results.length === 0) {
+      console.warn(
+        '[QUIZ SUBMIT] No valid answers matched quiz questions. Diagnostics:',
+        {
+          submittedQuestionIds: questionIds,
+          loadedQuestionIds: Array.from(questionById.keys()),
+        },
+      );
+      return res
+        .status(400)
+        .json({ error: 'No valid answers matched quiz questions' });
+    }
+
+    // Build proficiency updates (single-shot, sticky-progress)
+    const { data: existingStates, error: statesError } = await supabase
+      .from('user_proficiency_state')
+      .select('node_id, bloom_level, misconception_flag')
+      .eq('user_id', userId)
+      .in('node_id', Array.from(new Set(results.map((r) => r.concept_id))));
+
+    if (statesError) {
+      console.error(
+        '[QUIZ SUBMIT] Failed to fetch proficiency states:',
+        statesError,
+      );
+      return res
+        .status(500)
+        .json({ error: 'Failed to fetch proficiency states' });
+    }
+
+    console.log(
+      '[QUIZ SUBMIT] Loaded existing proficiency states count:',
+      Array.isArray(existingStates) ? existingStates.length : 0,
+    );
+
+    const stateByConcept = new Map(
+      (existingStates || []).map((s) => [s.node_id, s]),
+    );
+
+    const updatesByConcept = new Map();
+
+    results.forEach((r) => {
+      const existing = stateByConcept.get(r.concept_id);
+      const currentLevel = bloomToNumber(existing?.bloom_level || '0_unseen');
+      const targetLevel = bloomToNumber(r.target_level);
+
+      const desiredLevel = r.isCorrect
+        ? Math.max(currentLevel, targetLevel)
+        : currentLevel;
+
+      // Misconception logic: only mutate on misconception-target questions
+      let desiredMisconception;
+      if (r.misconception_target) {
+        desiredMisconception = !r.isCorrect;
+      }
+
+      const prev = updatesByConcept.get(r.concept_id);
+      const prevLevel = prev ? bloomToNumber(prev.newLevel) : currentLevel;
+      const mergedLevel = Math.max(prevLevel, desiredLevel);
+
+      const mergedMisconception =
+        desiredMisconception === undefined
+          ? prev?.misconceptionFlag
+          : desiredMisconception;
+
+      const evidence = `Quiz(${quizId}) Q: ${r.question}\nSelected: ${r.selectedAnswer}\nCorrect: ${r.correctAnswer}\nResult: ${r.isCorrect ? 'correct' : 'incorrect'}`;
+
+      updatesByConcept.set(r.concept_id, {
+        conceptId: r.concept_id,
+        newLevel: numberToBloom(mergedLevel),
+        misconceptionFlag: mergedMisconception,
+        evidence,
+        reasoning: r.isCorrect
+          ? `Correct answer on quiz question targeting ${r.target_level}`
+          : `Incorrect answer on quiz question targeting ${r.target_level}`,
+        confidence: (() => {
+          if (r.isCorrect) return 0.9;
+          if (r.misconception_target) return 0.7;
+          return 0.65;
+        })(),
+      });
+    });
+
+    const updates = Array.from(updatesByConcept.values());
+
+    console.log('[QUIZ SUBMIT] Computed proficiency updates:', updates.length);
+    if (updates.length > 0) {
+      console.log(
+        '[QUIZ SUBMIT] Updates sample (first 2):',
+        updates.slice(0, 2).map((u) => ({
+          conceptId: u.conceptId,
+          newLevel: u.newLevel,
+          misconceptionFlag: u.misconceptionFlag,
+          confidence: u.confidence,
+        })),
+      );
+    }
+
+    // Apply updates concept-by-concept (allows clearing misconceptions)
+    const updatedConcepts = [];
+    await Promise.all(
+      updates.map(async (u) => {
+        const { data: existingState } = await supabase
+          .from('user_proficiency_state')
+          .select('bloom_level, misconception_flag')
+          .eq('user_id', userId)
+          .eq('node_id', u.conceptId)
+          .single();
+
+        const currentLevel = bloomToNumber(
+          existingState?.bloom_level || '0_unseen',
+        );
+        const newLevel = bloomToNumber(u.newLevel);
+
+        // Sticky progress: do not downgrade bloom level
+        const effectiveLevel = Math.max(currentLevel, newLevel);
+        const currentMisconception = Boolean(existingState?.misconception_flag);
+        const desiredMisconception =
+          typeof u.misconceptionFlag === 'boolean'
+            ? u.misconceptionFlag
+            : currentMisconception;
+
+        const shouldUpdate =
+          !existingState ||
+          effectiveLevel > currentLevel ||
+          desiredMisconception !== currentMisconception;
+
+        if (!shouldUpdate) {
+          console.log('[QUIZ SUBMIT] No-op update (skipped):', {
+            conceptId: u.conceptId,
+            currentLevel: numberToBloom(currentLevel),
+            proposedLevel: numberToBloom(effectiveLevel),
+            currentMisconception,
+            desiredMisconception,
+          });
+          return;
+        }
+
+        const { error: upsertError } = await supabase
+          .from('user_proficiency_state')
+          .upsert(
+            {
+              user_id: userId,
+              node_id: u.conceptId,
+              bloom_level: numberToBloom(effectiveLevel),
+              misconception_flag: desiredMisconception,
+              last_evidence: u.evidence,
+              last_reasoning: u.reasoning,
+              last_confidence: u.confidence,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id,node_id' },
+          );
+
+        if (upsertError) {
+          console.error(
+            '[QUIZ SUBMIT] Upsert failed for concept:',
+            u.conceptId,
+            upsertError,
+          );
+          throw upsertError;
+        }
+
+        console.log('[QUIZ SUBMIT] Upserted proficiency state:', {
+          conceptId: u.conceptId,
+          bloom_level: numberToBloom(effectiveLevel),
+          misconception_flag: desiredMisconception,
+        });
+
+        // Track for neighbor unlocking
+        updatedConcepts.push({
+          conceptId: u.conceptId,
+          newLevel: numberToBloom(effectiveLevel),
+          newLevelNumber: effectiveLevel,
+        });
+      }),
+    );
+
+    // Check for neighbor unlocking
+    const proficiencyService = new ProficiencyAssessmentService();
+    await proficiencyService.checkAndUnlockNeighbors(userId, updatedConcepts);
+
+    // Mark quiz as submitted
+    const { error: markSubmittedError } = await supabase
+      .from('quiz_session')
+      .update({ submitted_at: new Date().toISOString() })
+      .eq('id', quizId)
+      .eq('user_id', userId);
+
+    if (markSubmittedError) {
+      console.error(
+        '[QUIZ SUBMIT] Failed to mark quiz_session submitted:',
+        markSubmittedError,
+      );
+    } else {
+      console.log('[QUIZ SUBMIT] Marked quiz_session submitted');
+    }
+
+    const correctCount = results.filter((r) => r.isCorrect).length;
+    return res.status(200).json({
+      quizId: quizId,
+      total: results.length,
+      correct: correctCount,
+      score: results.length ? correctCount / results.length : 0,
+      results,
+      proficiencyUpdatesApplied: updates.map((u) => ({
+        conceptId: u.conceptId,
+        newLevel: u.newLevel,
+        misconceptionFlag: u.misconceptionFlag,
+      })),
+    });
+  } catch (error) {
+    console.error('[QUIZ SUBMIT] Error:', error);
+    if (error && error.stack) {
+      console.error('[QUIZ SUBMIT] Stack:', error.stack);
+    }
+    return res.status(500).json({ error: 'Failed to submit quiz' });
+  }
+};
+
+/**
+ * Seed user proficiency states with all curriculum concepts
+ * POST /api/kathakali/seed-proficiency
+ * Initializes all concepts as '0_unseen' for new users
+ */
+exports.seedUserProficiency = async (req, res) => {
+  try {
+    const { user } = req;
+    const userId = user.id;
+
+    console.log(`[SEED PROFICIENCY] Seeding proficiency for user: ${userId}`);
+
+    const allConcepts = curriculumService.getAllConcepts();
+    const conceptIds = Object.keys(allConcepts);
+
+    if (conceptIds.length === 0) {
+      return res.status(500).json({ error: 'No concepts found in curriculum' });
+    }
+
+    // Prepare proficiency states for all concepts
+    const proficiencyStates = conceptIds.map((conceptId) => ({
+      user_id: userId,
+      node_id: conceptId,
+      bloom_level: '0_unseen',
+      misconception_flag: false,
+      last_evidence: 'Initial seeding on account creation',
+      last_reasoning:
+        'User account created, initializing all concepts as unseen',
+      last_confidence: 0.0,
+      updated_at: new Date().toISOString(),
+    }));
+
+    // Upsert to handle existing states (though unlikely for new users)
+    const { error } = await supabase
+      .from('user_proficiency_state')
+      .upsert(proficiencyStates, { onConflict: 'user_id,node_id' });
+
+    if (error) {
+      console.error('[SEED PROFICIENCY] Supabase error:', error);
+      return res
+        .status(500)
+        .json({ error: 'Failed to seed proficiency states' });
+    }
+
+    console.log(
+      `[SEED PROFICIENCY] Successfully seeded ${conceptIds.length} concepts for user ${userId}`,
+    );
+
+    return res.status(200).json({
+      message: `Seeded proficiency for ${conceptIds.length} concepts`,
+      conceptsSeeded: conceptIds.length,
+    });
+  } catch (error) {
+    console.error('[SEED PROFICIENCY] Error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };

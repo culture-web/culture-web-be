@@ -1,9 +1,6 @@
 const express = require('express');
-const {
-  authenticateToken,    
-  optionalAuth,           
-} = require('../middleware/authMiddleware');  
 const multer = require('multer');
+const { authenticateToken } = require('../middleware/authMiddleware');
 const make = require('../middleware/makeMulterMiddleware');
 
 // Multer setup for handling file uploads
@@ -48,9 +45,21 @@ router.post(
 );
 
 router.get(
-  '/generate-adaptive-quiz', 
-  authenticateToken, 
-  kathakaliController.generateAdaptiveQuiz
+  '/generate-adaptive-quiz',
+  authenticateToken,
+  kathakaliController.generateAdaptiveQuiz,
+);
+
+router.post(
+  '/quiz/:quizId/submit',
+  authenticateToken,
+  kathakaliController.submitQuiz,
+);
+
+router.post(
+  '/seed-proficiency',
+  authenticateToken,
+  kathakaliController.seedUserProficiency,
 );
 
 module.exports = router;
