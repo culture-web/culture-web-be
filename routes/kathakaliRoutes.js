@@ -56,4 +56,10 @@ router.post(
   kathakaliController.submitQuiz,
 );
 
+router.post(
+  '/seed-proficiency',
+  authenticateToken,
+  kathakaliController.seedUserProficiency,
+);
+
 module.exports = router;

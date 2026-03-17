@@ -60,7 +60,7 @@ Important: Default to "upcoming" for date_filter unless the query explicitly men
             content: query,
           },
         ],
-        max_tokens: 150,
+        max_tokens: 1000,
         temperature: 0.1,
       });
 

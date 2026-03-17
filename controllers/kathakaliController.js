@@ -14,6 +14,9 @@ const {
   numberToBloom,
   validBloomLevels,
 } = require('../utils/kathakaliUtils');
+const CurriculumService = require('../services/curriculumService');
+
+const curriculumService = new CurriculumService();
 const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
 const storageService = require('../services/minioStorageService');
@@ -1224,26 +1227,10 @@ exports.submitQuiz = async (req, res) => {
     const { answers } = req.body;
 
     console.log('[QUIZ SUBMIT] Incoming submission');
-    console.log('[QUIZ SUBMIT] userId:', userId);
-    console.log('[QUIZ SUBMIT] quizId:', quizId);
-    console.log(
-      '[QUIZ SUBMIT] body keys:',
-      req.body && typeof req.body === 'object' ? Object.keys(req.body) : null,
-    );
-    console.log(
-      '[QUIZ SUBMIT] answers type:',
-      Array.isArray(answers) ? 'array' : typeof answers,
-    );
     console.log(
       '[QUIZ SUBMIT] answers length:',
       Array.isArray(answers) ? answers.length : null,
     );
-    if (Array.isArray(answers) && answers.length > 0) {
-      console.log(
-        '[QUIZ SUBMIT] answers sample (first 2):',
-        answers.slice(0, 2),
-      );
-    }
 
     if (!quizId) {
       console.warn('[QUIZ SUBMIT] Validation failed: quizId missing');
@@ -1345,12 +1332,6 @@ exports.submitQuiz = async (req, res) => {
       .filter((r) => r);
 
     console.log('[QUIZ SUBMIT] Graded results count:', results.length);
-    if (results.length > 0) {
-      console.log(
-        '[QUIZ SUBMIT] Results sample (first 2):',
-        results.slice(0, 2),
-      );
-    }
 
     if (results.length === 0) {
       console.warn(
@@ -1569,5 +1550,63 @@ exports.submitQuiz = async (req, res) => {
       console.error('[QUIZ SUBMIT] Stack:', error.stack);
     }
     return res.status(500).json({ error: 'Failed to submit quiz' });
+  }
+};
+
+/**
+ * Seed user proficiency states with all curriculum concepts
+ * POST /api/kathakali/seed-proficiency
+ * Initializes all concepts as '0_unseen' for new users
+ */
+exports.seedUserProficiency = async (req, res) => {
+  try {
+    const { user } = req;
+    const userId = user.id;
+
+    console.log(`[SEED PROFICIENCY] Seeding proficiency for user: ${userId}`);
+
+    const allConcepts = curriculumService.getAllConcepts();
+    const conceptIds = Object.keys(allConcepts);
+
+    if (conceptIds.length === 0) {
+      return res.status(500).json({ error: 'No concepts found in curriculum' });
+    }
+
+    // Prepare proficiency states for all concepts
+    const proficiencyStates = conceptIds.map((conceptId) => ({
+      user_id: userId,
+      node_id: conceptId,
+      bloom_level: '0_unseen',
+      misconception_flag: false,
+      last_evidence: 'Initial seeding on account creation',
+      last_reasoning:
+        'User account created, initializing all concepts as unseen',
+      last_confidence: 0.0,
+      updated_at: new Date().toISOString(),
+    }));
+
+    // Upsert to handle existing states (though unlikely for new users)
+    const { error } = await supabase
+      .from('user_proficiency_state')
+      .upsert(proficiencyStates, { onConflict: 'user_id,node_id' });
+
+    if (error) {
+      console.error('[SEED PROFICIENCY] Supabase error:', error);
+      return res
+        .status(500)
+        .json({ error: 'Failed to seed proficiency states' });
+    }
+
+    console.log(
+      `[SEED PROFICIENCY] Successfully seeded ${conceptIds.length} concepts for user ${userId}`,
+    );
+
+    return res.status(200).json({
+      message: `Seeded proficiency for ${conceptIds.length} concepts`,
+      conceptsSeeded: conceptIds.length,
+    });
+  } catch (error) {
+    console.error('[SEED PROFICIENCY] Error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
