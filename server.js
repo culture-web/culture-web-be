@@ -21,7 +21,8 @@ const {
 
 const app = express();
 const httpServer = http.createServer(app);
-const port = 3001; // Choose any available port
+const port =
+  process.env.NODE_ENV === 'test' ? 0 : Number(process.env.PORT || 3001); // Choose any available port
 
 // Secure CORS configuration with whitelisted origins
 const allowedOrigins = [
@@ -132,7 +133,10 @@ adminRealtime.on('connection', (socket) => {
 
 // Start the server
 const server = httpServer.listen(port, () => {
-  console.log('Server is running on port 3001');
+  const address = server.address();
+  const boundPort =
+    typeof address === 'object' && address ? address.port : port;
+  console.log(`Server is running on port ${boundPort}`);
 });
 
 const handleShutdown = () => {

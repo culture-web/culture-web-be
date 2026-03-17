@@ -445,6 +445,141 @@ Return [] only if message is completely unrelated to Kathakali.`;
    * @param {Array} updates - Array of proficiency updates
    * @returns {Promise<void>}
    */
+  /**
+   * Public method to unlock neighbors for a list of updated concepts
+   * @param {string} userId - User identifier
+   * @param {Array} updatedConcepts - Array of {conceptId, newLevel, newLevelNumber}
+   */
+  async checkAndUnlockNeighbors(userId, updatedConcepts) {
+    await this.unlockNeighborConcepts(userId, updatedConcepts);
+  }
+
+  /**
+   * Unlock neighbor concepts when a concept reaches level 2 or higher
+   * @param {string} userId - User identifier
+   * @param {Array} updatedConcepts - Array of updated concepts with new levels
+   */
+  async unlockNeighborConcepts(userId, updatedConcepts) {
+    try {
+      // Find concepts that reached level 2 or higher
+      const qualifiedConcepts = updatedConcepts.filter(
+        (update) => update.newLevelNumber >= 2, // 2_understand or higher
+      );
+
+      if (qualifiedConcepts.length === 0) {
+        return; // No concepts qualified for unlocking
+      }
+
+      console.log(
+        `🔓 [ProficiencyAssessment] Checking neighbor unlocking for ${qualifiedConcepts.length} qualified concepts`,
+      );
+
+      const conceptsToUnlock = new Set();
+
+      // For each qualified concept, get its neighbors
+      qualifiedConcepts.forEach((update) => {
+        const neighbors = this.getNeighborConcepts(update.conceptId);
+        neighbors.forEach((neighborId) => {
+          conceptsToUnlock.add(neighborId);
+        });
+      });
+
+      if (conceptsToUnlock.size === 0) {
+        return; // No neighbors to unlock
+      }
+
+      console.log(
+        `🔓 [ProficiencyAssessment] Found ${conceptsToUnlock.size} neighbor concepts to potentially unlock`,
+      );
+
+      // Check which neighbors don't have proficiency states yet
+      const { data: existingStates, error } = await supabase
+        .from('user_proficiency_state')
+        .select('node_id')
+        .eq('user_id', userId)
+        .in('node_id', Array.from(conceptsToUnlock));
+
+      if (error) {
+        console.error(
+          '❌ [ProficiencyAssessment] Error checking existing states for neighbors:',
+          error,
+        );
+        return;
+      }
+
+      const existingConceptIds = new Set(
+        (existingStates || []).map((state) => state.node_id),
+      );
+
+      const newConceptsToUnlock = Array.from(conceptsToUnlock).filter(
+        (conceptId) => !existingConceptIds.has(conceptId),
+      );
+
+      if (newConceptsToUnlock.length === 0) {
+        console.log(
+          `🔓 [ProficiencyAssessment] All neighbor concepts already unlocked`,
+        );
+        return;
+      }
+
+      console.log(
+        `🔓 [ProficiencyAssessment] Unlocking ${newConceptsToUnlock.length} new neighbor concepts`,
+      );
+
+      // Create proficiency states for new concepts
+      const unlockInserts = newConceptsToUnlock.map((conceptId) => ({
+        user_id: userId,
+        node_id: conceptId,
+        bloom_level: '0_unseen',
+        misconception_flag: false,
+        last_evidence: 'Unlocked as neighbor of advanced concept',
+        last_reasoning:
+          'Concept unlocked due to progression in prerequisite knowledge',
+        last_confidence: 0.0,
+        updated_at: new Date().toISOString(),
+      }));
+
+      const { error: insertError } = await supabase
+        .from('user_proficiency_state')
+        .insert(unlockInserts);
+
+      if (insertError) {
+        console.error(
+          '❌ [ProficiencyAssessment] Error unlocking neighbor concepts:',
+          insertError,
+        );
+      } else {
+        console.log(
+          `✅ [ProficiencyAssessment] Successfully unlocked concepts: ${newConceptsToUnlock.join(', ')}`,
+        );
+      }
+    } catch (error) {
+      console.error(
+        '❌ [ProficiencyAssessment] Error in unlockNeighborConcepts:',
+        error,
+      );
+    }
+  }
+
+  /**
+   * Get neighbor concepts (children and prerequisites) for a given concept
+   * @param {string} conceptId - The concept identifier
+   * @returns {Array} Array of neighbor concept IDs
+   */
+  getNeighborConcepts(conceptId) {
+    const neighbors = new Set();
+
+    // Add children (concepts that depend on this one)
+    const children = this.curriculumService.getChildren(conceptId);
+    children.forEach((childId) => neighbors.add(childId));
+
+    // Add prerequisites (concepts this one depends on)
+    const prerequisites = this.curriculumService.getPrerequisites(conceptId);
+    prerequisites.forEach((prereqId) => neighbors.add(prereqId));
+
+    return Array.from(neighbors);
+  }
+
   async applyProficiencyUpdates(userId, updates) {
     if (!updates || updates.length === 0) {
       return;
@@ -454,6 +589,8 @@ Return [] only if message is completely unrelated to Kathakali.`;
       console.log(
         `💾 [ProficiencyAssessment] Applying ${updates.length} updates for user: ${userId}`,
       );
+
+      const updatedConcepts = [];
 
       await Promise.all(
         updates.map(async (update) => {
@@ -503,8 +640,15 @@ Return [] only if message is completely unrelated to Kathakali.`;
             }
 
             console.log(
-              `✅ [ProficiencyAssessment] Updated ${update.conceptId}: ${update.previousState?.bloomLevel} → ${update.newLevel}`,
+              `✅ [ProficiencyAssessment] Updated ${update.conceptId}: ${existingState?.bloom_level || '0_unseen'} → ${update.newLevel}`,
             );
+
+            // Track updated concepts for neighbor unlocking
+            updatedConcepts.push({
+              conceptId: update.conceptId,
+              newLevel: update.newLevel,
+              newLevelNumber: newLevel,
+            });
           } else {
             console.log(
               `🛡️ [ProficiencyAssessment] Skipped update for ${update.conceptId} (sticky progress)`,
@@ -512,6 +656,9 @@ Return [] only if message is completely unrelated to Kathakali.`;
           }
         }),
       );
+
+      // Check for neighbor unlocking after all updates
+      await this.unlockNeighborConcepts(userId, updatedConcepts);
     } catch (error) {
       console.error(
         '❌ [ProficiencyAssessment] Error applying updates:',
