@@ -148,6 +148,7 @@ class EmbeddingService {
     limit = 5,
     similarityThreshold = 0.35,
     scoringWeights = { vectorWeight: 0.7, fullTextWeight: 0.3 },
+    retrievalOptions = {},
   ) {
     const embedding = await this.generateEmbedding(query);
 
@@ -169,6 +170,11 @@ class EmbeddingService {
       totalWeight > 0 ? vectorWeight / totalWeight : 0.7;
     const normalizedFullTextWeight =
       totalWeight > 0 ? fullTextWeight / totalWeight : 0.3;
+    const deployTarget =
+      typeof retrievalOptions?.deployTarget === 'string'
+      && retrievalOptions.deployTarget.trim().length > 0
+        ? retrievalOptions.deployTarget.trim().toLowerCase()
+        : null;
 
     const sql = `
       SELECT 
@@ -226,6 +232,16 @@ class EmbeddingService {
         ) * $5) AS similarity
       FROM knowledge_base
       WHERE (metadata->>'enabled' IS NULL OR metadata->>'enabled' = 'true')
+        AND (
+          $6::text IS NULL
+          OR (
+            jsonb_typeof(metadata->'deployTargets') = 'array'
+            AND (metadata->'deployTargets') ? $6
+          )
+          OR metadata->>'deployTarget' IS NULL
+          OR metadata->>'deployTarget' = 'shared'
+          OR metadata->>'deployTarget' = $6
+        )
       ORDER BY similarity DESC
       LIMIT $2;
     `;
@@ -236,6 +252,7 @@ class EmbeddingService {
       queryLower,
       normalizedVectorWeight,
       normalizedFullTextWeight,
+      deployTarget,
     ]);
     return (rows || []).filter((r) => {
       const baseSimilarity = Number(r.base_similarity ?? 0);
@@ -301,6 +318,7 @@ class EmbeddingService {
     useReranking = true,
     strategy = 'embedding-based',
     scoringWeights = { vectorWeight: 0.7, fullTextWeight: 0.3 },
+    retrievalOptions = {},
   ) {
     try {
       // Stage 1: Vector search + boost scoring (get more candidates)
@@ -311,6 +329,7 @@ class EmbeddingService {
         candidateLimit,
         similarityThreshold,
         scoringWeights,
+        retrievalOptions,
       );
 
       if (!candidates || candidates.length === 0) {
@@ -361,6 +380,7 @@ class EmbeddingService {
         limit,
         similarityThreshold,
         scoringWeights,
+        retrievalOptions,
       );
     }
   }

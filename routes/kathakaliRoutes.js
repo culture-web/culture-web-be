@@ -1,6 +1,6 @@
 const express = require('express');
 const multer = require('multer');
-const { authenticateToken } = require('../middleware/authMiddleware');
+const { authenticateToken, optionalAuth } = require('../middleware/authMiddleware');
 const make = require('../middleware/makeMulterMiddleware');
 
 // Multer setup for handling file uploads
@@ -30,6 +30,7 @@ router.post('/chat', multerUploadErrorMiddleware, kathakaliController.chat);
 
 router.post(
   '/chat-mudras',
+  optionalAuth,
   multerUploadErrorMiddleware,
   kathakaliController.chatMudras,
 );
