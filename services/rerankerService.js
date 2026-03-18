@@ -4,13 +4,47 @@
  * 1. Cross-encoder: Uses ms-marco-MiniLM-L-6-v2 for semantic ranking
  * 2. Embedding-based: Uses cosine similarity on embeddings (faster, no new model)
  */
-const embeddingService = require('./embeddingService');
-
 class RerankerService {
   constructor() {
     this.crossEncoder = null;
     this.crossEncoderModel = 'Xenova/ms-marco-MiniLM-L-6-v2';
+    this.embedder = null;
+    this.embeddingModel = 'Xenova/all-MiniLM-L6-v2';
     this.supportedStrategies = ['cross-encoder', 'embedding-based'];
+  }
+
+  /**
+   * Initialize the embedding model (lazy load)
+   */
+  async initializeEmbedder() {
+    if (!this.embedder) {
+      console.log('Loading embedding model for reranker:', this.embeddingModel);
+      // eslint-disable-next-line node/no-unsupported-features/es-syntax
+      const { pipeline } = await import('@xenova/transformers');
+
+      this.embedder = await pipeline('feature-extraction', this.embeddingModel);
+      console.log('Embedding model for reranker loaded successfully');
+    }
+    return this.embedder;
+  }
+
+  /**
+   * Generate embedding for reranking
+   * @param {string} text - Input text
+   * @returns {Promise<Array<number>>} - Normalized embedding vector
+   */
+  async generateEmbedding(text) {
+    if (!text || text.trim().length === 0) {
+      throw new Error('Text cannot be empty');
+    }
+
+    await this.initializeEmbedder();
+    const output = await this.embedder(text, {
+      pooling: 'mean',
+      normalize: true,
+    });
+
+    return Array.from(output.data);
   }
 
   /**
@@ -141,14 +175,14 @@ class RerankerService {
       );
 
       // Generate query embedding
-      const queryEmbedding = await embeddingService.generateEmbedding(query);
+      const queryEmbedding = await this.generateEmbedding(query);
 
       // Score each candidate by cosine similarity
       const scores = [];
       for (let i = 0; i < candidates.length; i += 1) {
         try {
           // eslint-disable-next-line no-await-in-loop
-          const candidateEmbedding = await embeddingService.generateEmbedding(
+          const candidateEmbedding = await this.generateEmbedding(
             candidates[i].content,
           );
 

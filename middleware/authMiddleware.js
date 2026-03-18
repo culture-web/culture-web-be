@@ -6,7 +6,10 @@ const JWT_SECRET =
   process.env.JWT_SECRET || 'kathakalai-secret-key-change-in-production';
 
 // Supabase JWT Configuration
-const { SUPABASE_JWT_ISSUER } = process.env;
+const { SUPABASE_URL } = process.env;
+const SUPABASE_JWT_ISSUER =
+  process.env.SUPABASE_JWT_ISSUER
+  || (SUPABASE_URL ? `${String(SUPABASE_URL).replace(/\/$/, '')}/auth/v1` : '');
 
 // Initialize jose functions and JWKS lazily
 let joseModule = null;
@@ -27,6 +30,11 @@ const initializeJose = async () => {
 
 // JWT verification function using jose library
 const verifyToken = async (token) => {
+  if (!SUPABASE_JWT_ISSUER) {
+    throw new Error(
+      'SUPABASE_JWT_ISSUER is missing and could not be derived from SUPABASE_URL',
+    );
+  }
   const jose = await initializeJose();
   const { payload } = await jose.jwtVerify(token, SUPABASE_JWT_KEYS, {
     issuer: SUPABASE_JWT_ISSUER,
@@ -64,6 +72,8 @@ const authenticateToken = async (req, res, next) => {
       id: payload.sub, // User UUID from 'sub' claim
       email: payload.email,
       role: payload.role,
+      app_metadata: payload.app_metadata || {},
+      user_metadata: payload.user_metadata || {},
       aud: payload.aud, // audience
       exp: payload.exp, // expiration time
       iat: payload.iat, // issued at time
@@ -186,6 +196,8 @@ const optionalAuth = async (req, res, next) => {
       id: payload.sub, // User UUID from 'sub' claim
       email: payload.email,
       role: payload.role,
+      app_metadata: payload.app_metadata || {},
+      user_metadata: payload.user_metadata || {},
       aud: payload.aud, // audience
       exp: payload.exp, // expiration time
       iat: payload.iat, // issued at time

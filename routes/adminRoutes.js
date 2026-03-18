@@ -151,4 +151,11 @@ router.post('/users', adminController.createUser);
 router.patch('/users/:userId/role', adminController.updateUserRole);
 router.post('/users/:userId/reset-password', adminController.resetUserPassword);
 
+// Audit trail
+router.get(
+  '/audit-trail',
+  requireKbRoles('admin'),
+  adminController.getAuditTrail,
+);
+
 module.exports = router;

@@ -192,6 +192,99 @@ const ACTIVITY_ACTIONS = new Set([
   'deploy',
 ]);
 
+const ensureAdminAuditTrailTable = async () => {
+  await localDbClient.query(`
+    CREATE TABLE IF NOT EXISTS admin_audit_trail (
+      id BIGSERIAL PRIMARY KEY,
+      actor_user_id TEXT,
+      actor_email TEXT,
+      actor_role TEXT,
+      action TEXT NOT NULL,
+      resource_type TEXT,
+      resource_id TEXT,
+      status TEXT NOT NULL DEFAULT 'success',
+      details JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await localDbClient.query(`
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_trail_created_at
+    ON admin_audit_trail (created_at DESC);
+  `);
+  await localDbClient.query(`
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_trail_action
+    ON admin_audit_trail (action);
+  `);
+  await localDbClient.query(`
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_trail_actor
+    ON admin_audit_trail (actor_user_id);
+  `);
+};
+
+const getAuditLogRetentionDays = () =>
+  clampNumber(process.env.AUDIT_LOG_RETENTION_DAYS, 1, 3650, 90);
+
+const pruneAdminAuditTrail = async () => {
+  const retentionDays = getAuditLogRetentionDays();
+  const { rowCount } = await localDbClient.query(
+    `DELETE FROM admin_audit_trail
+     WHERE created_at < NOW() - ($1::int * INTERVAL '1 day');`,
+    [retentionDays],
+  );
+  return {
+    retentionDays,
+    deletedRows: Number(rowCount || 0),
+  };
+};
+
+const getActorFromRequest = (req) => ({
+  actorUserId: req?.user?.id ? String(req.user.id) : null,
+  actorEmail: req?.user?.email ? String(req.user.email) : null,
+  actorRole: req?.user?.role ? String(req.user.role).toLowerCase() : null,
+});
+
+const writeAdminAuditTrail = async (
+  req,
+  { action, resourceType = null, resourceId = null, status = 'success', details = {} } = {},
+) => {
+  if (!action) return;
+
+  try {
+    await ensureAdminAuditTrailTable();
+    await pruneAdminAuditTrail();
+    const actor = getActorFromRequest(req);
+    const safeDetails =
+      details && typeof details === 'object' && !Array.isArray(details)
+        ? details
+        : { value: details };
+
+    await localDbClient.query(
+      `INSERT INTO admin_audit_trail (
+        actor_user_id,
+        actor_email,
+        actor_role,
+        action,
+        resource_type,
+        resource_id,
+        status,
+        details
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb);`,
+      [
+        actor.actorUserId,
+        actor.actorEmail,
+        actor.actorRole,
+        action,
+        resourceType,
+        resourceId,
+        status,
+        JSON.stringify(safeDetails),
+      ],
+    );
+  } catch (error) {
+    console.warn('[AUDIT] Failed to write admin audit trail:', error.message);
+  }
+};
+
 const renameFileVersionHistory = async (oldName, newName) => {
   if (!oldName || !newName || oldName === newName) return;
   try {
@@ -233,11 +326,11 @@ const storageService = require('../services/minioStorageService');
 const groqClient = require('../client/groqClient');
 const {
   ALLOWED_ROLES,
-  listKbUsers,
-  createKbUser,
-  updateKbUserRole,
-  resetKbUserPasswordByAdmin,
-} = require('../services/kbUserService');
+  listKbUsersFromSupabase,
+  createKbUserInSupabase,
+  updateKbUserRoleInSupabase,
+  resetKbUserPasswordInSupabase,
+} = require('../services/supabaseKbUserService');
 
 const normalizeSummaryShape = (raw = {}) => {
   const toStringArray = (value) =>
@@ -472,6 +565,17 @@ exports.ingestDocument = async (req, res) => {
       },
       { captureSnapshot: true },
     );
+
+    await writeAdminAuditTrail(req, {
+      action: 'kb.ingest_text',
+      resourceType: 'knowledge_base_file',
+      resourceId: fileName,
+      details: {
+        chunksIngested: insertedIds.length,
+        chunkSize: chunkingConfig.chunkSize,
+        chunkOverlap: chunkingConfig.chunkOverlap,
+      },
+    });
 
     return res.status(201).json({
       message: 'Document ingested successfully',
@@ -835,15 +939,31 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
     // Process rows to extract enabled status from metadata
     const processedRows = rows.map((row) => {
       let enabled = true; // Default to true if no metadata
+      const targets = new Set();
 
       // Check if any chunk has enabled explicitly set to false
       if (row.all_metadata && Array.isArray(row.all_metadata)) {
         for (const meta of row.all_metadata) {
           if (meta && typeof meta === 'object' && meta.enabled === false) {
             enabled = false;
-            break;
+          }
+          if (meta && typeof meta === 'object' && Array.isArray(meta.deployTargets)) {
+            meta.deployTargets
+              .map((target) => String(target || '').trim().toLowerCase())
+              .filter(Boolean)
+              .forEach((target) => targets.add(target));
+          }
+          if (meta && typeof meta === 'object' && typeof meta.deployTarget === 'string' && meta.deployTarget.trim()) {
+            targets.add(meta.deployTarget.trim().toLowerCase());
           }
         }
+      }
+
+      let deployTarget = 'shared';
+      if (targets.size === 1) {
+        deployTarget = Array.from(targets)[0];
+      } else if (targets.size > 1) {
+        deployTarget = 'mixed';
       }
 
       return {
@@ -851,6 +971,8 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
         upload_date: row.upload_date,
         chunk_number: row.chunk_number,
         enabled,
+        deploy_target: deployTarget,
+        deploy_targets: Array.from(targets),
       };
     });
 
@@ -864,6 +986,8 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
         upload_date: obj.lastModified || new Date().toISOString(),
         chunk_number: 0,
         enabled: false,
+        deploy_target: 'shared',
+        deploy_targets: [],
       }));
 
     const combinedRows = [...processedRows, ...stagedRows].sort(
@@ -931,6 +1055,11 @@ exports.createFolder = async (req, res) => {
     }
 
     await storageService.createFolder(safeName);
+    await writeAdminAuditTrail(req, {
+      action: 'kb.folder.create',
+      resourceType: 'folder',
+      resourceId: safeName,
+    });
     return res
       .status(201)
       .json({ message: 'Folder created', folderName: safeName });
@@ -967,6 +1096,16 @@ exports.deleteFolder = async (req, res) => {
       console.error('Failed to delete folder from MinIO:', storageError);
     }
 
+    await writeAdminAuditTrail(req, {
+      action: 'kb.folder.delete',
+      resourceType: 'folder',
+      resourceId: folderName,
+      details: {
+        rowsDeleted: dbResult.rowCount,
+        storageObjectsDeleted: storageDeleted,
+      },
+    });
+
     return res.status(200).json({
       message: 'Folder deleted',
       folderName,
@@ -998,6 +1137,103 @@ exports.getIngestJobStatus = async (req, res) => {
 };
 
 /**
+ * GET /admin/audit-trail
+ * Query params: limit, offset, action, resourceType, actorUserId, status, search
+ */
+exports.getAuditTrail = async (req, res) => {
+  try {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can view audit trail' });
+    }
+
+    await ensureAdminAuditTrailTable();
+    const pruneResult = await pruneAdminAuditTrail();
+
+    const limit = clampNumber(req.query?.limit, 1, 200, 50);
+    const offset = clampNumber(req.query?.offset, 0, 100000, 0);
+    const action = req.query?.action ? String(req.query.action).trim() : null;
+    const resourceType = req.query?.resourceType
+      ? String(req.query.resourceType).trim()
+      : null;
+    const actorUserId = req.query?.actorUserId
+      ? String(req.query.actorUserId).trim()
+      : null;
+    const status = req.query?.status ? String(req.query.status).trim() : null;
+    const search = req.query?.search ? String(req.query.search).trim() : null;
+
+    const conditions = [];
+    const params = [];
+
+    if (action) {
+      params.push(action);
+      conditions.push(`action = $${params.length}`);
+    }
+    if (resourceType) {
+      params.push(resourceType);
+      conditions.push(`resource_type = $${params.length}`);
+    }
+    if (actorUserId) {
+      params.push(actorUserId);
+      conditions.push(`actor_user_id = $${params.length}`);
+    }
+    if (status) {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    }
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`(
+        action ILIKE $${params.length}
+        OR resource_type ILIKE $${params.length}
+        OR resource_id ILIKE $${params.length}
+        OR actor_email ILIKE $${params.length}
+      )`);
+    }
+
+    const whereClause = conditions.length
+      ? `WHERE ${conditions.join(' AND ')}`
+      : '';
+
+    const countSql = `SELECT COUNT(*)::int AS total FROM admin_audit_trail ${whereClause};`;
+    const { rows: countRows } = await localDbClient.query(countSql, params);
+    const total = Number(countRows?.[0]?.total || 0);
+
+    const listParams = [...params, limit, offset];
+    const listSql = `
+      SELECT
+        id,
+        actor_user_id,
+        actor_email,
+        actor_role,
+        action,
+        resource_type,
+        resource_id,
+        status,
+        details,
+        created_at
+      FROM admin_audit_trail
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${params.length + 1}
+      OFFSET $${params.length + 2};
+    `;
+    const { rows } = await localDbClient.query(listSql, listParams);
+
+    return res.status(200).json({
+      total,
+      limit,
+      offset,
+      retentionDays: pruneResult.retentionDays,
+      prunedRows: pruneResult.deletedRows,
+      entries: rows || [],
+    });
+  } catch (error) {
+    console.error('Error fetching audit trail:', error);
+    return res.status(500).json({ error: 'Failed to fetch audit trail' });
+  }
+};
+
+/**
  * POST /admin/knowledge-base/:fileName/enable
  * Body: { enabled: boolean }
  * Sets enabled flag for all chunks of a file
@@ -1005,11 +1241,19 @@ exports.getIngestJobStatus = async (req, res) => {
 exports.setFileEnabled = async (req, res) => {
   try {
     const fileName = decodeURIComponent(req.params.fileName || '');
-    const { enabled } = req.body;
+    const { enabled, deployTarget } = req.body;
+    const normalizedDeployTarget =
+      typeof deployTarget === 'string' && deployTarget.trim().length > 0
+        ? deployTarget.trim().toLowerCase()
+        : null;
+    const allowedTargets = new Set(['mudras', 'kathakali', 'shared']);
     if (!fileName || typeof enabled === 'undefined') {
       return res
         .status(400)
         .json({ error: 'fileName and enabled are required' });
+    }
+    if (enabled && normalizedDeployTarget && !allowedTargets.has(normalizedDeployTarget)) {
+      return res.status(400).json({ error: 'deployTarget must be one of mudras, kathakali, shared' });
     }
 
     // Get all chunks for this file
@@ -1022,6 +1266,26 @@ exports.setFileEnabled = async (req, res) => {
     const updatePromises = chunks.rows.map(async (row) => {
       const metadata = row.metadata || {};
       metadata.enabled = enabled;
+      if (enabled) {
+        const targetSet = new Set();
+        if (Array.isArray(metadata.deployTargets)) {
+          metadata.deployTargets
+            .map((target) => String(target || '').trim().toLowerCase())
+            .filter(Boolean)
+            .forEach((target) => targetSet.add(target));
+        }
+        if (typeof metadata.deployTarget === 'string' && metadata.deployTarget.trim()) {
+          targetSet.add(metadata.deployTarget.trim().toLowerCase());
+        }
+        if (normalizedDeployTarget) {
+          targetSet.add(normalizedDeployTarget);
+        }
+        metadata.deployTargets = Array.from(targetSet);
+        metadata.deployTarget = metadata.deployTargets[0] || null;
+      } else {
+        metadata.deployTargets = [];
+        metadata.deployTarget = null;
+      }
       await localDbClient.query(
         'UPDATE knowledge_base SET metadata = $1 WHERE id = $2',
         [JSON.stringify(metadata), row.id],
@@ -1032,12 +1296,51 @@ exports.setFileEnabled = async (req, res) => {
     await recordFileVersion(
       fileName,
       'set_enabled',
-      { enabled: Boolean(enabled) },
+      {
+        enabled: Boolean(enabled),
+        deployTarget: enabled ? (normalizedDeployTarget || null) : null,
+        mode: enabled ? 'add_target' : 'disable_all',
+      },
       { captureSnapshot: true },
     );
+
+    await writeAdminAuditTrail(req, {
+      action: enabled ? 'kb.file.enable' : 'kb.file.disable',
+      resourceType: 'knowledge_base_file',
+      resourceId: fileName,
+      details: {
+        enabled: Boolean(enabled),
+        deployTarget: enabled ? normalizedDeployTarget || null : null,
+      },
+    });
+
+    const refreshedChunks = await localDbClient.query(
+      'SELECT metadata FROM knowledge_base WHERE source_file = $1',
+      [fileName],
+    );
+    const deployTargetsSet = new Set();
+    (refreshedChunks.rows || []).forEach((row) => {
+      const metadata = row.metadata || {};
+      if (Array.isArray(metadata.deployTargets)) {
+        metadata.deployTargets
+          .map((target) => String(target || '').trim().toLowerCase())
+          .filter(Boolean)
+          .forEach((target) => deployTargetsSet.add(target));
+      }
+      if (typeof metadata.deployTarget === 'string' && metadata.deployTarget.trim()) {
+        deployTargetsSet.add(metadata.deployTarget.trim().toLowerCase());
+      }
+    });
+
     return res
       .status(200)
-      .json({ message: 'File enabled state updated', fileName, enabled });
+      .json({
+        message: 'File enabled state updated',
+        fileName,
+        enabled,
+        deployTarget: enabled ? (normalizedDeployTarget || null) : null,
+        deployTargets: Array.from(deployTargetsSet),
+      });
   } catch (error) {
     console.error('Error setting file enabled:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -1080,6 +1383,13 @@ exports.reembedFile = async (req, res) => {
       { chunksUpdated: updated },
       { captureSnapshot: true },
     );
+
+    await writeAdminAuditTrail(req, {
+      action: 'kb.file.reembed',
+      resourceType: 'knowledge_base_file',
+      resourceId: fileName,
+      details: { chunksUpdated: updated },
+    });
 
     return res.status(200).json({
       message: 'Re-embedded successfully',
@@ -1351,6 +1661,16 @@ exports.startParseFile = async (req, res) => {
           },
           { captureSnapshot: true },
         );
+        await writeAdminAuditTrail(req, {
+          action: 'kb.file.parse.complete',
+          resourceType: 'knowledge_base_file',
+          resourceId: fileName,
+          details: {
+            chunksUpdated: updated,
+            chunkSize: chunkingConfig.chunkSize,
+            chunkOverlap: chunkingConfig.chunkOverlap,
+          },
+        });
       } catch (e) {
         await localDbClient.query(
           `UPDATE kb_jobs SET status = 'failed', end_time = NOW(), last_message = $2 WHERE id = $1;`,
@@ -1367,8 +1687,28 @@ exports.startParseFile = async (req, res) => {
         await recordFileVersion(fileName, 'parse_failed', {
           reason: e.message || 'Failed',
         });
+        await writeAdminAuditTrail(req, {
+          action: 'kb.file.parse.failed',
+          resourceType: 'knowledge_base_file',
+          resourceId: fileName,
+          status: 'failed',
+          details: {
+            reason: e.message || 'Failed',
+          },
+        });
       }
     })();
+
+    await writeAdminAuditTrail(req, {
+      action: 'kb.file.parse.start',
+      resourceType: 'knowledge_base_file',
+      resourceId: fileName,
+      details: {
+        jobId,
+        chunkSize: chunkingConfig.chunkSize,
+        chunkOverlap: chunkingConfig.chunkOverlap,
+      },
+    });
 
     return res.status(202).json({ message: 'Parse started', jobId, fileName });
   } catch (error) {
@@ -1503,6 +1843,16 @@ exports.deleteDocument = async (req, res) => {
       { captureSnapshot: true, snapshotChunks: preDeleteChunks },
     );
 
+    await writeAdminAuditTrail(req, {
+      action: 'kb.file.delete',
+      resourceType: 'knowledge_base_file',
+      resourceId: fileName,
+      details: {
+        rowsDeleted: result.rowCount,
+        chunkCountBeforeDelete: chunkCount,
+      },
+    });
+
     return res.status(200).json({
       message: 'Document deleted successfully',
       fileName,
@@ -1565,6 +1915,17 @@ exports.renameDocument = async (req, res) => {
       },
       { captureSnapshot: true },
     );
+
+    await writeAdminAuditTrail(req, {
+      action: 'kb.file.rename',
+      resourceType: 'knowledge_base_file',
+      resourceId: newName,
+      details: {
+        oldName: fileName,
+        newName,
+        rowsAffected: result.rowCount,
+      },
+    });
 
     return res.status(200).json({
       message: 'Document renamed',
@@ -1809,6 +2170,13 @@ exports.logFileActivity = async (req, res) => {
       captureSnapshot: false,
     });
 
+    await writeAdminAuditTrail(req, {
+      action: `kb.activity.${action}`,
+      resourceType: 'knowledge_base_file',
+      resourceId: fileName,
+      details: metadata,
+    });
+
     return res.status(200).json({
       message: 'Activity recorded',
       fileName,
@@ -2038,7 +2406,7 @@ exports.listUsers = async (req, res) => {
     if (req.user?.role !== 'admin') {
       return res.status(403).json({ error: 'Only admin can manage KB users' });
     }
-    const users = await listKbUsers();
+    const users = await listKbUsersFromSupabase();
     return res.status(200).json({ users });
   } catch (error) {
     console.error('Error listing users:', error);
@@ -2067,13 +2435,33 @@ exports.createUser = async (req, res) => {
     }
 
     try {
-      const user = await createKbUser({ username, email, password, role });
+      const user = await createKbUserInSupabase({
+        username,
+        email,
+        password,
+        role,
+      });
+      await writeAdminAuditTrail(req, {
+        action: 'user.create',
+        resourceType: 'user',
+        resourceId: user?.id || user?.email || email,
+        details: {
+          username,
+          email,
+          role,
+        },
+      });
       return res.status(201).json({
         message: 'User created successfully',
         user,
       });
     } catch (error) {
-      if ((error.message || '').toLowerCase().includes('duplicate key')) {
+      const errorMessage = String(error.message || '').toLowerCase();
+      if (
+        errorMessage.includes('duplicate key')
+        || errorMessage.includes('already exists')
+        || errorMessage.includes('already registered')
+      ) {
         return res.status(409).json({ error: 'Username already exists' });
       }
       throw error;
@@ -2107,10 +2495,19 @@ exports.updateUserRole = async (req, res) => {
         .json({ error: 'role must be one of: admin, editor, viewer' });
     }
 
-    const user = await updateKbUserRole(userId, role);
+    const user = await updateKbUserRoleInSupabase(userId, role);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    await writeAdminAuditTrail(req, {
+      action: 'user.role.update',
+      resourceType: 'user',
+      resourceId: userId,
+      details: {
+        role,
+      },
+    });
 
     return res.status(200).json({
       message: 'User role updated successfully',
@@ -2138,10 +2535,19 @@ exports.resetUserPassword = async (req, res) => {
         .json({ error: 'userId and newPassword are required' });
     }
 
-    const user = await resetKbUserPasswordByAdmin(userId, newPassword);
+    const user = await resetKbUserPasswordInSupabase(userId, newPassword);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    await writeAdminAuditTrail(req, {
+      action: 'user.password.reset',
+      resourceType: 'user',
+      resourceId: userId,
+      details: {
+        resetBy: req.user?.id || null,
+      },
+    });
 
     return res.status(200).json({
       message: 'Password reset successfully',

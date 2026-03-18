@@ -21,6 +21,216 @@ const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
 const storageService = require('../services/minioStorageService');
 const ProficiencyAssessmentService = require('../services/proficiencyAssessmentService');
+const MULTI_TURN_MAX_PREVIOUS_TURNS = 2;
+const MULTI_TURN_HISTORY_MESSAGE_LIMIT = MULTI_TURN_MAX_PREVIOUS_TURNS * 2;
+
+const getLlmLogPreviewChars = () =>
+  clampNumber(process.env.LLM_LOG_PROMPT_PREVIEW_CHARS, 100, 5000, 1200);
+
+const serializeLlmMessagesForLog = (messages = []) => {
+  const logFullPrompt = parseBoolean(process.env.LLM_LOG_FULL_PROMPT, false);
+  const previewChars = getLlmLogPreviewChars();
+
+  return (messages || []).map((msg) => ({
+    role: msg?.role,
+    content: logFullPrompt
+      ? msg?.content
+      : String(msg?.content || '').slice(0, previewChars),
+  }));
+};
+
+const buildMultiTurnTeachingGuidance = (
+  historyMessages = [],
+  currentMessage = '',
+) => {
+  const previousUserQueries = (historyMessages || [])
+    .filter((entry) => entry?.role === 'user' && entry?.content)
+    .map((entry) => String(entry.content).trim())
+    .filter(Boolean);
+
+  const anchorQuery = previousUserQueries[0] || null;
+  const latestUserQuery =
+    previousUserQueries[previousUserQueries.length - 1] || null;
+  const currentQuery = String(currentMessage || '').trim();
+  const lowerCurrent = currentQuery.toLowerCase();
+
+  const explicitTopicReset =
+    lowerCurrent.includes('new sequence')
+    || lowerCurrent.includes('new scene')
+    || lowerCurrent.includes('change topic')
+    || lowerCurrent.includes('different story')
+    || lowerCurrent.includes('start over');
+
+  const requestedExpressionRefinement =
+    lowerCurrent.includes('expressive')
+    || lowerCurrent.includes('emotion')
+    || lowerCurrent.includes('joy')
+    || lowerCurrent.includes('playful')
+
+  const guidance = [
+    `Conversation continuity is enabled for the last ${MULTI_TURN_MAX_PREVIOUS_TURNS} turn(s).`,
+  ];
+
+  if (!explicitTopicReset && anchorQuery) {
+    guidance.push(
+      `Treat this as iterative refinement of the same mudra sequence anchored to the earliest user intent: "${anchorQuery}".`,
+    );
+  } else {
+    guidance.push(
+      'User appears to reset topic; start a fresh sequence and do not force old context.',
+    );
+  }
+
+  if (latestUserQuery) {
+    guidance.push(`Most recent prior refinement request: "${latestUserQuery}".`);
+  }
+
+  guidance.push(
+    'Respond like a Kathakali teacher progressively correcting a student over turns.',
+    'Keep core narrative entities/actions stable unless user explicitly changes storyline/topic.',
+    'When refining, return: (1) Updated sequence steps, (2) expression cues',
+  );
+
+  if (requestedExpressionRefinement) {
+    guidance.push(
+      'User requests stronger expressiveness; prioritize joy/playfulness accents.',
+    );
+  }
+
+  return guidance.join(' ');
+};
+
+const ensureAdminAuditTrailTable = async () => {
+  await localDb.query(`
+    CREATE TABLE IF NOT EXISTS admin_audit_trail (
+      id BIGSERIAL PRIMARY KEY,
+      actor_user_id TEXT,
+      actor_email TEXT,
+      actor_role TEXT,
+      action TEXT NOT NULL,
+      resource_type TEXT,
+      resource_id TEXT,
+      status TEXT NOT NULL DEFAULT 'success',
+      details JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await localDb.query(`
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_trail_created_at
+    ON admin_audit_trail (created_at DESC);
+  `);
+  await localDb.query(`
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_trail_action
+    ON admin_audit_trail (action);
+  `);
+  await localDb.query(`
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_trail_actor
+    ON admin_audit_trail (actor_user_id);
+  `);
+};
+
+const getAuditLogRetentionDays = () =>
+  clampNumber(process.env.AUDIT_LOG_RETENTION_DAYS, 1, 3650, 90);
+
+const pruneAdminAuditTrail = async () => {
+  const retentionDays = getAuditLogRetentionDays();
+  await localDb.query(
+    `DELETE FROM admin_audit_trail
+     WHERE created_at < NOW() - ($1::int * INTERVAL '1 day');`,
+    [retentionDays],
+  );
+};
+
+const writeLlmAuditTrail = async (
+  req,
+  {
+    label,
+    provider,
+    model,
+    messages,
+    responseMessage,
+    status = 'success',
+    error,
+    extra = {},
+  } = {},
+) => {
+  const enabled = parseBoolean(process.env.LLM_AUDIT_LOG_ENABLED, false);
+  if (!enabled) return;
+
+  try {
+    await ensureAdminAuditTrailTable();
+    await pruneAdminAuditTrail();
+
+    const details = {
+      label,
+      provider,
+      model,
+      messageCount: Array.isArray(messages) ? messages.length : 0,
+      messages: serializeLlmMessagesForLog(messages || []),
+      responsePreview: String(responseMessage || '').slice(
+        0,
+        getLlmLogPreviewChars(),
+      ),
+      responseLength: String(responseMessage || '').length,
+      error: error ? String(error.message || error) : null,
+      ...extra,
+    };
+
+    await localDb.query(
+      `INSERT INTO admin_audit_trail (
+        actor_user_id,
+        actor_email,
+        actor_role,
+        action,
+        resource_type,
+        resource_id,
+        status,
+        details
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb);`,
+      [
+        req?.user?.id ? String(req.user.id) : null,
+        req?.user?.email ? String(req.user.email) : null,
+        req?.user?.role ? String(req.user.role).toLowerCase() : null,
+        'llm.request',
+        'llm',
+        label || provider || model || 'unknown',
+        status,
+        JSON.stringify(details),
+      ],
+    );
+  } catch (auditError) {
+    console.warn('[LLM AUDIT] Failed to persist LLM audit trail:', auditError.message || auditError);
+  }
+};
+
+const logLlmRequestPayload = ({
+  label,
+  provider,
+  model,
+  messages,
+  extra = {},
+}) => {
+  const enabled = parseBoolean(process.env.LLM_LOG_REQUEST_PAYLOAD, false);
+  if (!enabled) return;
+
+  const serializedMessages = serializeLlmMessagesForLog(messages || []);
+
+  console.log(`=== ${label} Request Payload ===`);
+  console.log(
+    JSON.stringify(
+      {
+        provider,
+        model,
+        messageCount: serializedMessages.length,
+        messages: serializedMessages,
+        ...extra,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(`=== End ${label} Request Payload ===\n`);
+};
 
 const validateObjectName = (name) => {
   if (!name || name.includes('..') || name.startsWith('/')) {
@@ -172,6 +382,7 @@ exports.classifyCharacter = async (req, res) => {
 // TODO: TO BE MIGRATED TO CHAT SERVICE
 
 exports.chat = async (req, res) => {
+  let llmAuditContext = null;
   try {
     const { message, imageAnalysis, characterData, expressionData } =
       req.body || {};
@@ -378,6 +589,25 @@ Please use this information to answer the user's question accurately. If the use
 
     const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
     const provider = process.env.HF_CHAT_PROVIDER || 'together';
+    const llmStartedAt = Date.now();
+    llmAuditContext = {
+      label: 'HF Chat',
+      provider,
+      model,
+      messages,
+      extra: {
+        route: 'chat',
+      },
+      llmStartedAt,
+    };
+
+    logLlmRequestPayload({
+      label: 'HF Chat',
+      provider,
+      model,
+      messages,
+    });
+
     const chatCompletion = await client.chatCompletion({
       provider,
       model,
@@ -385,12 +615,33 @@ Please use this information to answer the user's question accurately. If the use
     });
 
     const responseMessage = chatCompletion.choices[0].message.content;
+    await writeLlmAuditTrail(req, {
+      ...llmAuditContext,
+      status: 'success',
+      responseMessage,
+      extra: {
+        ...(llmAuditContext?.extra || {}),
+        durationMs: Date.now() - llmStartedAt,
+      },
+    });
 
     const chatbotResponse = preprocessChatResponse(responseMessage);
 
     return res.status(200).json(chatbotResponse);
   } catch (error) {
     console.log('Error in chat:', error);
+
+    await writeLlmAuditTrail(req, {
+      ...(llmAuditContext || {}),
+      status: 'failed',
+      error,
+      extra: {
+        ...(llmAuditContext?.extra || {}),
+        durationMs: llmAuditContext?.llmStartedAt
+          ? Date.now() - llmAuditContext.llmStartedAt
+          : null,
+      },
+    });
 
     if (error.message && error.message.includes('token')) {
       return res
@@ -403,9 +654,12 @@ Please use this information to answer the user's question accurately. If the use
 };
 
 exports.chatMudras = async (req, res) => {
+  let llmAuditContext = null;
   try {
     const {
       message,
+      sessionId,
+      historyMessages: requestHistoryMessages,
       imageAnalysis,
       characterData,
       expressionData,
@@ -442,6 +696,67 @@ exports.chatMudras = async (req, res) => {
       multiTurnOptimization,
       true,
     );
+    const requesterUserId = req.user?.id || null;
+    const requestedSessionId =
+      typeof sessionId === 'string' && sessionId.trim().length > 0
+        ? sessionId.trim()
+        : null;
+
+    let ownedSessionId = null;
+    if (requestedSessionId && requesterUserId) {
+      const { data: ownedSession, error: ownedSessionError } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('id', requestedSessionId)
+        .eq('user_id', requesterUserId)
+        .single();
+
+      if (ownedSessionError || !ownedSession) {
+        console.warn(
+          `[chat-mudras] Ignoring session ${requestedSessionId} - not owned by requester ${requesterUserId}`,
+        );
+      } else {
+        ownedSessionId = ownedSession.id;
+      }
+    }
+
+    let historyMessages = [];
+    if (multiTurnOptimizationValue && ownedSessionId) {
+      const { data: recentMessages, error: recentMessagesError } = await supabase
+        .from('messages')
+        .select('role, content, created_at')
+        .eq('session_id', ownedSessionId)
+        .in('role', ['user', 'assistant'])
+        .order('created_at', { ascending: false })
+        .limit(MULTI_TURN_HISTORY_MESSAGE_LIMIT);
+
+      if (recentMessagesError) {
+        console.warn(
+          '[chat-mudras] Failed to load recent session messages for multi-turn optimization:',
+          recentMessagesError.message,
+        );
+      } else {
+        historyMessages = (recentMessages || [])
+          .reverse()
+          .map((row) => ({
+            role: row.role,
+            content: row.content,
+          }))
+          .filter((row) => row.role && row.content);
+      }
+    } else if (multiTurnOptimizationValue && Array.isArray(requestHistoryMessages)) {
+      historyMessages = requestHistoryMessages
+        .map((row) => ({
+          role: String(row?.role || '').trim().toLowerCase(),
+          content: String(row?.content || '').trim(),
+        }))
+        .filter(
+          (row) =>
+            (row.role === 'user' || row.role === 'assistant')
+            && row.content.length > 0,
+        )
+        .slice(-MULTI_TURN_HISTORY_MESSAGE_LIMIT);
+    }
 
     let ragContext = '';
     let citations = [];
@@ -459,6 +774,9 @@ exports.chatMudras = async (req, res) => {
         vectorWeight: vectorWeightValue,
         fullTextWeight: fullTextWeightValue,
         multiTurnOptimization: multiTurnOptimizationValue,
+        maxPreviousTurns: MULTI_TURN_MAX_PREVIOUS_TURNS,
+        historyMessagesIncluded: historyMessages.length,
+        sessionId: ownedSessionId,
       },
     };
     try {
@@ -476,6 +794,9 @@ exports.chatMudras = async (req, res) => {
           {
             vectorWeight: vectorWeightValue,
             fullTextWeight: fullTextWeightValue,
+          },
+          {
+            deployTarget: 'mudras',
           },
         );
 
@@ -627,6 +948,7 @@ exports.chatMudras = async (req, res) => {
     }
 
     const messages = [
+      ...historyMessages,
       {
         role: 'user',
         content: message,
@@ -672,6 +994,14 @@ exports.chatMudras = async (req, res) => {
       }
     }
 
+    if (multiTurnOptimizationValue && historyMessages.length > 0) {
+      const continuityGuidance = buildMultiTurnTeachingGuidance(
+        historyMessages,
+        message,
+      );
+      systemMessage += `\n\n${continuityGuidance}`;
+    }
+
     messages.unshift({
       role: 'system',
       content: systemMessage,
@@ -705,6 +1035,32 @@ exports.chatMudras = async (req, res) => {
 
     // Use the GROQ_MODEL or default model
     const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+    const llmStartedAt = Date.now();
+    llmAuditContext = {
+      label: 'Groq Chat Mudras',
+      provider: 'groq',
+      model,
+      messages,
+      extra: {
+        route: 'chat-mudras',
+        knowledgeSource: knowledgeSource || 'all',
+        rerankerStrategy: rerankerStrategy || 'embedding-based',
+        max_tokens: 2000,
+        temperature: 0.7,
+      },
+      llmStartedAt,
+    };
+
+    logLlmRequestPayload({
+      label: 'Groq Chat Mudras',
+      provider: 'groq',
+      model,
+      messages,
+      extra: {
+        max_tokens: 2000,
+        temperature: 0.7,
+      },
+    });
 
     const chatCompletion = await client.chat.completions.create({
       model,
@@ -714,6 +1070,20 @@ exports.chatMudras = async (req, res) => {
     });
 
     const responseMessage = chatCompletion.choices[0].message.content;
+    await writeLlmAuditTrail(req, {
+      ...llmAuditContext,
+      status: 'success',
+      responseMessage,
+      extra: {
+        ...(llmAuditContext?.extra || {}),
+        durationMs: Date.now() - llmStartedAt,
+        retrieval: {
+          totalRetrieved: retrievalDebug.totalRetrieved,
+          usedInContext: retrievalDebug.usedInContext,
+          contextTokens: retrievalDebug.contextTokens,
+        },
+      },
+    });
 
     console.log('=== LLM Response Info ===');
     console.log(`Response Length: ${responseMessage.length} chars`);
@@ -723,6 +1093,48 @@ exports.chatMudras = async (req, res) => {
 
     const chatbotResponse = preprocessChatResponse(responseMessage);
 
+    if (ownedSessionId) {
+      try {
+        const { error: persistError } = await supabase.from('messages').insert([
+          {
+            session_id: ownedSessionId,
+            role: 'user',
+            content: message,
+            metadata: {
+              source: 'chat-mudras',
+              multiTurnOptimization: multiTurnOptimizationValue,
+              knowledgeSource: knowledgeSource || 'all',
+            },
+            response_for: null,
+            is_summary: false,
+          },
+          {
+            session_id: ownedSessionId,
+            role: 'assistant',
+            content: responseMessage,
+            metadata: {
+              source: 'chat-mudras',
+              generatedWithRAG: true,
+              multiTurnOptimization: multiTurnOptimizationValue,
+            },
+            response_for: null,
+            is_summary: false,
+          },
+        ]);
+        if (persistError) {
+          console.warn(
+            '[chat-mudras] Failed to persist turn in session history:',
+            persistError.message || persistError,
+          );
+        }
+      } catch (persistError) {
+        console.warn(
+          '[chat-mudras] Failed to persist turn in session history:',
+          persistError.message || persistError,
+        );
+      }
+    }
+
     // Add citations to response
     chatbotResponse.citations = citations;
     chatbotResponse.retrieval = retrievalDebug;
@@ -730,6 +1142,18 @@ exports.chatMudras = async (req, res) => {
     return res.status(200).json(chatbotResponse);
   } catch (error) {
     console.log('Error in chatMudras:', error);
+
+    await writeLlmAuditTrail(req, {
+      ...(llmAuditContext || {}),
+      status: 'failed',
+      error,
+      extra: {
+        ...(llmAuditContext?.extra || {}),
+        durationMs: llmAuditContext?.llmStartedAt
+          ? Date.now() - llmAuditContext.llmStartedAt
+          : null,
+      },
+    });
 
     if (error.message && error.message.includes('api_key')) {
       return res.status(401).json({ error: 'Invalid or missing Groq API key' });

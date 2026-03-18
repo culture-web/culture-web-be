@@ -1,4 +1,5 @@
 const Minio = require('minio');
+const fs = require('fs');
 
 // Load environment variables with validation
 const { MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET } =
@@ -6,6 +7,16 @@ const { MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET } =
 
 const MINIO_PORT = Number(process.env.MINIO_PORT || 9000);
 const MINIO_USE_SSL = process.env.MINIO_USE_SSL === 'true';
+const isRunningInDocker = fs.existsSync('/.dockerenv');
+const normalizedEndpoint = String(MINIO_ENDPOINT || '').trim();
+const shouldUseMinioServiceName =
+  isRunningInDocker
+  && (!normalizedEndpoint
+    || normalizedEndpoint === 'localhost'
+    || normalizedEndpoint === '127.0.0.1');
+const resolvedMinioEndpoint = shouldUseMinioServiceName
+  ? 'minio'
+  : (normalizedEndpoint || 'minio');
 
 // Validate required credentials (skip in test environment)
 if (process.env.NODE_ENV !== 'test') {
@@ -17,12 +28,18 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 const minioClient = new Minio.Client({
-  endPoint: MINIO_ENDPOINT || 'minio',
+  endPoint: resolvedMinioEndpoint,
   port: MINIO_PORT,
   useSSL: MINIO_USE_SSL,
   accessKey: MINIO_ACCESS_KEY || '',
   secretKey: MINIO_SECRET_KEY || '',
 });
+
+if (shouldUseMinioServiceName) {
+  console.warn(
+    '[MinIO] MINIO_ENDPOINT was localhost/empty in Docker; using service endpoint "minio" instead.',
+  );
+}
 
 const BUCKET_NAME = MINIO_BUCKET || 'knowledge-base';
 
