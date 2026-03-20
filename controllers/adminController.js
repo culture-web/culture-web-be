@@ -919,10 +919,10 @@ exports.getKnowledgeBaseStats = async (req, res) => {
   try {
     const sql = `
       SELECT
-        COUNT(*) as total_chunks,
-        COUNT(DISTINCT source_file) as total_files,
+        COUNT(*)::int as total_chunks,
+        COUNT(DISTINCT source_file)::int as total_files,
         ARRAY_AGG(DISTINCT source_file) as files,
-        COUNT(DISTINCT metadata->>'page') as total_pages
+        COUNT(DISTINCT metadata->>'page')::int as total_pages
       FROM knowledge_base;
     `;
     const { rows } = await localDbClient.query(sql);
@@ -951,7 +951,7 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
       SELECT 
         source_file AS name,
         MIN(created_at) AS upload_date,
-        COUNT(*) AS chunk_number,
+        COUNT(*)::int AS chunk_number,
         array_agg(metadata) AS all_metadata
       FROM knowledge_base
       GROUP BY source_file
