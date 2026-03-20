@@ -21,6 +21,7 @@ const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
 const storageService = require('../services/minioStorageService');
 const ProficiencyAssessmentService = require('../services/proficiencyAssessmentService');
+
 const MULTI_TURN_MAX_PREVIOUS_TURNS = 2;
 const MULTI_TURN_HISTORY_MESSAGE_LIMIT = MULTI_TURN_MAX_PREVIOUS_TURNS * 2;
 
@@ -38,6 +39,8 @@ const serializeLlmMessagesForLog = (messages = []) => {
       : String(msg?.content || '').slice(0, previewChars),
   }));
 };
+const buildMudraAssetImageUrl = (assetId) =>
+  `/api/kathakali/mudras/assets/${assetId}/image`;
 
 const buildMultiTurnTeachingGuidance = (
   historyMessages = [],
@@ -55,17 +58,17 @@ const buildMultiTurnTeachingGuidance = (
   const lowerCurrent = currentQuery.toLowerCase();
 
   const explicitTopicReset =
-    lowerCurrent.includes('new sequence')
-    || lowerCurrent.includes('new scene')
-    || lowerCurrent.includes('change topic')
-    || lowerCurrent.includes('different story')
-    || lowerCurrent.includes('start over');
+    lowerCurrent.includes('new sequence') ||
+    lowerCurrent.includes('new scene') ||
+    lowerCurrent.includes('change topic') ||
+    lowerCurrent.includes('different story') ||
+    lowerCurrent.includes('start over');
 
   const requestedExpressionRefinement =
-    lowerCurrent.includes('expressive')
-    || lowerCurrent.includes('emotion')
-    || lowerCurrent.includes('joy')
-    || lowerCurrent.includes('playful')
+    lowerCurrent.includes('expressive') ||
+    lowerCurrent.includes('emotion') ||
+    lowerCurrent.includes('joy') ||
+    lowerCurrent.includes('playful');
 
   const guidance = [
     `Conversation continuity is enabled for the last ${MULTI_TURN_MAX_PREVIOUS_TURNS} turn(s).`,
@@ -82,7 +85,9 @@ const buildMultiTurnTeachingGuidance = (
   }
 
   if (latestUserQuery) {
-    guidance.push(`Most recent prior refinement request: "${latestUserQuery}".`);
+    guidance.push(
+      `Most recent prior refinement request: "${latestUserQuery}".`,
+    );
   }
 
   guidance.push(
@@ -199,7 +204,10 @@ const writeLlmAuditTrail = async (
       ],
     );
   } catch (auditError) {
-    console.warn('[LLM AUDIT] Failed to persist LLM audit trail:', auditError.message || auditError);
+    console.warn(
+      '[LLM AUDIT] Failed to persist LLM audit trail:',
+      auditError.message || auditError,
+    );
   }
 };
 
@@ -238,6 +246,249 @@ const validateObjectName = (name) => {
   }
   return name;
 };
+
+const ensureMudraAssetsTable = async () => {
+  await localDb.query(`
+    CREATE TABLE IF NOT EXISTS mudra_assets (
+      id BIGSERIAL PRIMARY KEY,
+      mudra_key TEXT NOT NULL UNIQUE,
+      mudra_name TEXT NOT NULL,
+      object_name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      mime_type TEXT,
+      sort_order INTEGER DEFAULT 0,
+      tags JSONB DEFAULT '[]'::jsonb,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await localDb.query(`
+    CREATE INDEX IF NOT EXISTS idx_mudra_assets_active_sort
+    ON mudra_assets (is_active, sort_order, mudra_name);
+  `);
+};
+
+const deriveMudraKey = (value = '') =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+const deriveMudraName = (mudraKey = '') =>
+  String(mudraKey || '')
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+
+const parseTags = (input) => {
+  if (Array.isArray(input)) {
+    return [
+      ...new Set(input.map((tag) => String(tag || '').trim()).filter(Boolean)),
+    ].slice(0, 30);
+  }
+
+  const raw = String(input || '').trim();
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return [
+        ...new Set(
+          parsed.map((tag) => String(tag || '').trim()).filter(Boolean),
+        ),
+      ].slice(0, 30);
+    }
+  } catch {
+    // Fall back to comma-separated parser
+  }
+
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 30);
+};
+
+const guessExtensionFromMime = (mime = '') => {
+  const normalized = String(mime || '').toLowerCase();
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
+  if (normalized === 'image/webp') return 'webp';
+  if (normalized === 'image/gif') return 'gif';
+  return 'png';
+};
+
+const normalizeMudraSearchTerms = (query = '') => {
+  const normalized = String(query || '').toLowerCase();
+  const terms = normalized
+    .split(/[^a-z0-9]+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 3);
+
+  return [...new Set(terms)].slice(0, 12);
+};
+
+const MUDRA_ASSET_INTENT_HINTS = [
+  'image',
+  'photo',
+  'picture',
+  'show',
+  'see',
+  'visual',
+  'illustration',
+  'diagram',
+  'learn',
+  'teach',
+  'example',
+  'mudra',
+  'gesture',
+  'how to do',
+];
+
+const shouldRunMudraAssetLoop = (query = '', historyMessages = []) => {
+  const mode = String(process.env.MUDRA_ASSET_LOOKUP_MODE || 'auto')
+    .trim()
+    .toLowerCase();
+
+  if (mode === 'off') {
+    return { shouldRun: false, reason: 'mode:off' };
+  }
+
+  if (mode === 'always') {
+    return { shouldRun: true, reason: 'mode:always' };
+  }
+
+  const current = String(query || '').toLowerCase();
+  const hasHint = MUDRA_ASSET_INTENT_HINTS.some((hint) =>
+    current.includes(hint),
+  );
+
+  if (hasHint) {
+    return { shouldRun: true, reason: 'query:intent-hint' };
+  }
+
+  const recentUserText = (historyMessages || [])
+    .filter((entry) => entry?.role === 'user' && entry?.content)
+    .slice(-2)
+    .map((entry) => String(entry.content).toLowerCase())
+    .join(' ');
+
+  if (MUDRA_ASSET_INTENT_HINTS.some((hint) => recentUserText.includes(hint))) {
+    return { shouldRun: true, reason: 'history:intent-hint' };
+  }
+
+  return { shouldRun: false, reason: 'auto:no-intent-hint' };
+};
+
+const uniqueAssetsByMudraKey = (assets = []) => {
+  const seen = new Set();
+  return (assets || []).filter((asset) => {
+    const key = String(asset?.mudraKey || '')
+      .trim()
+      .toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const runMudraAssetLookupLoop = async (
+  candidateQueries = [],
+  { limit = 4, expiresIn = 3600 } = {},
+) => {
+  const triedQueries = [];
+  let matches = [];
+
+  await (candidateQueries || []).reduce(async (previousPromise, query) => {
+    await previousPromise;
+
+    if (matches.length >= limit) return;
+
+    const normalized = String(query || '').trim();
+    if (!normalized) return;
+    triedQueries.push(normalized);
+
+    // eslint-disable-next-line no-use-before-define
+    const found = await findMudraAssetsByQuery(normalized, {
+      limit,
+      expiresIn,
+    });
+
+    if (Array.isArray(found) && found.length > 0) {
+      matches = uniqueAssetsByMudraKey([].concat(matches, found));
+    }
+  }, Promise.resolve());
+
+  return {
+    matches: uniqueAssetsByMudraKey(matches).slice(0, limit),
+    triedQueries,
+  };
+};
+
+async function findMudraAssetsByQuery(query, { limit = 4 } = {}) {
+  await ensureMudraAssetsTable();
+
+  const terms = normalizeMudraSearchTerms(query);
+  if (!terms.length) return [];
+
+  const wherePredicates = [];
+  const params = [];
+
+  terms.forEach((term) => {
+    params.push(`%${term}%`);
+    const termParam = `$${params.length}`;
+    wherePredicates.push(`mudra_key ILIKE ${termParam}`);
+    wherePredicates.push(`mudra_name ILIKE ${termParam}`);
+    wherePredicates.push(
+      `EXISTS (
+         SELECT 1
+         FROM jsonb_array_elements_text(COALESCE(tags, '[]'::jsonb)) AS tag(value)
+         WHERE tag.value ILIKE ${termParam}
+       )`,
+    );
+  });
+
+  const safeLimit = Math.max(1, Math.min(12, Math.round(Number(limit) || 4)));
+  params.push(safeLimit);
+  const limitParam = `$${params.length}`;
+
+  const { rows } = await localDb.query(
+    `SELECT
+       id,
+       mudra_key,
+       mudra_name,
+       object_name,
+       description,
+       mime_type,
+       sort_order,
+       tags
+     FROM mudra_assets
+     WHERE is_active = TRUE
+       AND (${wherePredicates.join(' OR ')})
+     ORDER BY sort_order ASC, mudra_name ASC
+     LIMIT ${limitParam};`,
+    params,
+  );
+
+  return (rows || []).map((asset) => ({
+    id: asset.id,
+    mudraKey: asset.mudra_key,
+    mudraName: asset.mudra_name,
+    objectName: asset.object_name,
+    imageUrl: buildMudraAssetImageUrl(asset.id),
+    description: asset.description || null,
+    mimeType: asset.mime_type || null,
+    sortOrder: asset.sort_order,
+    tags: Array.isArray(asset.tags) ? asset.tags : [],
+  }));
+}
 
 // Helper function to classify based on the endpoint for single image
 const classifyImageSingle = async (req, res, apiEndpoint) => {
@@ -678,6 +929,21 @@ exports.chatMudras = async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
+    const mudraAssetLookupLimit = 4;
+    const mudraAssetUrlExpiresInSeconds = clampNumber(
+      process.env.MUDRA_IMAGE_URL_EXPIRES_IN_SECONDS,
+      60,
+      604800,
+      3600,
+    );
+    let mudraAssetMatches = [];
+    let mudraAssetLookupDebug = {
+      triggered: false,
+      reason: 'not-evaluated',
+      loopPasses: 0,
+      triedQueries: [],
+    };
+
     const client = groqClient.getInstance();
 
     // RAG: Search local knowledge base with two-stage retrieval (vector + reranking)
@@ -722,13 +988,14 @@ exports.chatMudras = async (req, res) => {
 
     let historyMessages = [];
     if (multiTurnOptimizationValue && ownedSessionId) {
-      const { data: recentMessages, error: recentMessagesError } = await supabase
-        .from('messages')
-        .select('role, content, created_at')
-        .eq('session_id', ownedSessionId)
-        .in('role', ['user', 'assistant'])
-        .order('created_at', { ascending: false })
-        .limit(MULTI_TURN_HISTORY_MESSAGE_LIMIT);
+      const { data: recentMessages, error: recentMessagesError } =
+        await supabase
+          .from('messages')
+          .select('role, content, created_at')
+          .eq('session_id', ownedSessionId)
+          .in('role', ['user', 'assistant'])
+          .order('created_at', { ascending: false })
+          .limit(MULTI_TURN_HISTORY_MESSAGE_LIMIT);
 
       if (recentMessagesError) {
         console.warn(
@@ -744,18 +1011,49 @@ exports.chatMudras = async (req, res) => {
           }))
           .filter((row) => row.role && row.content);
       }
-    } else if (multiTurnOptimizationValue && Array.isArray(requestHistoryMessages)) {
+    } else if (
+      multiTurnOptimizationValue &&
+      Array.isArray(requestHistoryMessages)
+    ) {
       historyMessages = requestHistoryMessages
         .map((row) => ({
-          role: String(row?.role || '').trim().toLowerCase(),
+          role: String(row?.role || '')
+            .trim()
+            .toLowerCase(),
           content: String(row?.content || '').trim(),
         }))
         .filter(
           (row) =>
-            (row.role === 'user' || row.role === 'assistant')
-            && row.content.length > 0,
+            (row.role === 'user' || row.role === 'assistant') &&
+            row.content.length > 0,
         )
         .slice(-MULTI_TURN_HISTORY_MESSAGE_LIMIT);
+    }
+
+    const assetLoopDecision = shouldRunMudraAssetLoop(message, historyMessages);
+    mudraAssetLookupDebug = {
+      ...mudraAssetLookupDebug,
+      triggered: assetLoopDecision.shouldRun,
+      reason: assetLoopDecision.reason,
+    };
+
+    if (assetLoopDecision.shouldRun) {
+      const previousUserQuery = [...historyMessages]
+        .reverse()
+        .find((entry) => entry.role === 'user' && entry.content)?.content;
+
+      const candidateQueries = [message, previousUserQuery].filter(Boolean);
+      const lookupResult = await runMudraAssetLookupLoop(candidateQueries, {
+        limit: mudraAssetLookupLimit,
+        expiresIn: mudraAssetUrlExpiresInSeconds,
+      });
+
+      mudraAssetMatches = lookupResult.matches;
+      mudraAssetLookupDebug = {
+        ...mudraAssetLookupDebug,
+        loopPasses: lookupResult.triedQueries.length,
+        triedQueries: lookupResult.triedQueries,
+      };
     }
 
     let ragContext = '';
@@ -778,6 +1076,7 @@ exports.chatMudras = async (req, res) => {
         historyMessagesIncluded: historyMessages.length,
         sessionId: ownedSessionId,
       },
+      assetLookup: mudraAssetLookupDebug,
     };
     try {
       // Use provided strategy or default to 'embedding-based'
@@ -970,6 +1269,26 @@ exports.chatMudras = async (req, res) => {
         'Help the user with information about Kathakali traditions, characters, expressions, and cultural significance.';
     }
 
+    retrievalDebug = {
+      ...retrievalDebug,
+      assetLookup: mudraAssetLookupDebug,
+    };
+
+    if (mudraAssetMatches.length > 0) {
+      const keyHints = mudraAssetMatches
+        .map((asset) => `${asset.mudraKey} (${asset.mudraName})`)
+        .join(', ');
+      systemMessage += `\n\nMatched mudra image keys for this query: ${keyHints}. If you reference an image, use these exact keys.`;
+      retrievalDebug = {
+        ...retrievalDebug,
+        assetMatches: mudraAssetMatches.map((asset) => ({
+          mudraKey: asset.mudraKey,
+          mudraName: asset.mudraName,
+          objectName: asset.objectName,
+        })),
+      };
+    }
+
     // Add image analysis if provided
     if (imageAnalysis) {
       systemMessage += `\n\nImage Analysis Context: ${imageAnalysis}`;
@@ -1070,6 +1389,33 @@ exports.chatMudras = async (req, res) => {
     });
 
     const responseMessage = chatCompletion.choices[0].message.content;
+
+    if (mudraAssetLookupDebug.triggered && mudraAssetMatches.length === 0) {
+      const responseLookup = await runMudraAssetLookupLoop([responseMessage], {
+        limit: mudraAssetLookupLimit,
+        expiresIn: mudraAssetUrlExpiresInSeconds,
+      });
+
+      if (responseLookup.matches.length > 0) {
+        mudraAssetMatches = responseLookup.matches;
+      }
+
+      mudraAssetLookupDebug = {
+        ...mudraAssetLookupDebug,
+        loopPasses:
+          mudraAssetLookupDebug.loopPasses + responseLookup.triedQueries.length,
+        triedQueries: [
+          ...mudraAssetLookupDebug.triedQueries,
+          ...responseLookup.triedQueries,
+        ],
+      };
+
+      retrievalDebug = {
+        ...retrievalDebug,
+        assetLookup: mudraAssetLookupDebug,
+      };
+    }
+
     await writeLlmAuditTrail(req, {
       ...llmAuditContext,
       status: 'success',
@@ -1138,6 +1484,7 @@ exports.chatMudras = async (req, res) => {
     // Add citations to response
     chatbotResponse.citations = citations;
     chatbotResponse.retrieval = retrievalDebug;
+    chatbotResponse.assetMatches = mudraAssetMatches;
 
     return res.status(200).json(chatbotResponse);
   } catch (error) {
@@ -1160,6 +1507,353 @@ exports.chatMudras = async (req, res) => {
     }
 
     return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+exports.uploadMudraAsset = async (req, res) => {
+  try {
+    await ensureMudraAssetsTable();
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Image file is required' });
+    }
+
+    if (!String(req.file.mimetype || '').startsWith('image/')) {
+      return res
+        .status(400)
+        .json({ error: 'Only image uploads are supported' });
+    }
+
+    const {
+      mudraKey: mudraKeyInput,
+      mudraName: mudraNameInput,
+      fileName: fileNameInput,
+      description,
+      tags,
+      sortOrder,
+      isActive,
+      objectPrefix,
+    } = req.body || {};
+
+    const inferredKey =
+      deriveMudraKey(mudraKeyInput) ||
+      deriveMudraKey(mudraNameInput) ||
+      deriveMudraKey(fileNameInput) ||
+      deriveMudraKey(req.file.originalname);
+
+    if (!inferredKey) {
+      return res.status(400).json({
+        error: 'Unable to derive mudra key. Please provide mudraKey.',
+      });
+    }
+
+    const mudraName = String(
+      mudraNameInput || deriveMudraName(inferredKey),
+    ).trim();
+    if (!mudraName) {
+      return res.status(400).json({ error: 'mudraName is required' });
+    }
+
+    const rawFileName = String(
+      fileNameInput || req.file.originalname || `${inferredKey}.png`,
+    )
+      .trim()
+      .replace(/\\/g, '/')
+      .split('/')
+      .pop();
+
+    const safePrefix =
+      String(objectPrefix || 'mudras/images')
+        .trim()
+        .replace(/^\/+|\/+$/g, '') || 'mudras/images';
+
+    const hasExtension = /\.[a-z0-9]+$/i.test(rawFileName);
+    const normalizedFileName = hasExtension
+      ? rawFileName
+      : `${rawFileName}.${guessExtensionFromMime(req.file.mimetype)}`;
+
+    if (!normalizedFileName) {
+      return res.status(400).json({ error: 'fileName is invalid' });
+    }
+
+    const objectName = `${safePrefix}/${normalizedFileName}`;
+    validateObjectName(objectName);
+
+    await storageService.putObject(
+      objectName,
+      req.file.buffer,
+      req.file.mimetype,
+    );
+
+    const parsedTags = parseTags(tags);
+    const activeFlag = parseBoolean(isActive, true);
+    const normalizedSortOrder = Math.round(clampNumber(sortOrder, 0, 9999, 0));
+
+    const { rows } = await localDb.query(
+      `INSERT INTO mudra_assets (
+        mudra_key,
+        mudra_name,
+        object_name,
+        description,
+        mime_type,
+        sort_order,
+        tags,
+        is_active,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, NOW())
+      ON CONFLICT (mudra_key)
+      DO UPDATE SET
+        mudra_name = EXCLUDED.mudra_name,
+        object_name = EXCLUDED.object_name,
+        description = EXCLUDED.description,
+        mime_type = EXCLUDED.mime_type,
+        sort_order = EXCLUDED.sort_order,
+        tags = EXCLUDED.tags,
+        is_active = EXCLUDED.is_active,
+        updated_at = NOW()
+      RETURNING id, mudra_key, mudra_name, object_name, description, mime_type, sort_order, tags, is_active, created_at, updated_at;`,
+      [
+        inferredKey,
+        mudraName,
+        objectName,
+        String(description || '').trim() || null,
+        req.file.mimetype || null,
+        normalizedSortOrder,
+        JSON.stringify(parsedTags),
+        activeFlag,
+      ],
+    );
+
+    const saved = rows?.[0];
+    return res.status(200).json({
+      message: 'Mudra asset uploaded successfully',
+      asset: {
+        id: saved.id,
+        mudraKey: saved.mudra_key,
+        mudraName: saved.mudra_name,
+        objectName: saved.object_name,
+        imageUrl: buildMudraAssetImageUrl(saved.id),
+        description: saved.description || null,
+        mimeType: saved.mime_type || null,
+        sortOrder: saved.sort_order,
+        tags: Array.isArray(saved.tags) ? saved.tags : [],
+        isActive: saved.is_active,
+        createdAt: saved.created_at,
+        updatedAt: saved.updated_at,
+      },
+    });
+  } catch (error) {
+    if (error?.code === '23505') {
+      return res.status(409).json({
+        error:
+          'Mudra key or object name already exists. Please use a unique key/file name.',
+      });
+    }
+
+    console.error('Error uploading mudra asset:', error);
+    return res.status(500).json({ error: 'Failed to upload mudra asset' });
+  }
+};
+
+// List mudra assets and return presigned MinIO URLs for rendering in UI/chat
+exports.listMudraAssets = async (req, res) => {
+  try {
+    await ensureMudraAssetsTable();
+
+    const limit = Math.round(clampNumber(req.query?.limit, 1, 100, 24));
+    const includeInactive =
+      String(req.query?.includeInactive || 'false').toLowerCase() === 'true';
+    const search = String(req.query?.search || '').trim();
+
+    const whereClauses = [];
+    const params = [];
+
+    if (!includeInactive) {
+      whereClauses.push('is_active = TRUE');
+    }
+
+    if (search) {
+      params.push(`%${search}%`);
+      const searchParam = `$${params.length}`;
+      whereClauses.push(
+        `(mudra_key ILIKE ${searchParam} OR mudra_name ILIKE ${searchParam} OR COALESCE(description, '') ILIKE ${searchParam})`,
+      );
+    }
+
+    params.push(limit);
+    const limitParam = `$${params.length}`;
+
+    const whereSql = whereClauses.length
+      ? `WHERE ${whereClauses.join(' AND ')}`
+      : '';
+
+    const { rows } = await localDb.query(
+      `SELECT
+         id,
+         mudra_key,
+         mudra_name,
+         object_name,
+         description,
+         mime_type,
+         sort_order,
+         tags,
+         is_active,
+         created_at,
+         updated_at
+       FROM mudra_assets
+       ${whereSql}
+       ORDER BY sort_order ASC, mudra_name ASC
+       LIMIT ${limitParam};`,
+      params,
+    );
+
+    const assets = (rows || []).map((asset) => ({
+      id: asset.id,
+      mudraKey: asset.mudra_key,
+      mudraName: asset.mudra_name,
+      objectName: asset.object_name,
+      imageUrl: buildMudraAssetImageUrl(asset.id),
+      description: asset.description || null,
+      mimeType: asset.mime_type || null,
+      sortOrder: asset.sort_order,
+      tags: Array.isArray(asset.tags) ? asset.tags : [],
+      isActive: asset.is_active,
+      createdAt: asset.created_at,
+      updatedAt: asset.updated_at,
+    }));
+
+    return res.status(200).json({
+      count: assets.length,
+      assets,
+    });
+  } catch (error) {
+    console.error('Error listing mudra assets:', error);
+    return res.status(500).json({ error: 'Failed to list mudra assets' });
+  }
+};
+
+exports.getMudraAssetImage = async (req, res) => {
+  try {
+    await ensureMudraAssetsTable();
+
+    const assetId = Number(req.params?.id);
+    if (!Number.isInteger(assetId) || assetId <= 0) {
+      return res.status(400).json({ error: 'Valid asset id is required' });
+    }
+
+    const { rows } = await localDb.query(
+      `SELECT id, object_name, mime_type
+       FROM mudra_assets
+       WHERE id = $1
+       LIMIT 1;`,
+      [assetId],
+    );
+
+    const asset = rows?.[0];
+    if (!asset) {
+      return res.status(404).json({ error: 'Mudra asset not found' });
+    }
+
+    const buffer = await storageService.getObject(asset.object_name);
+    res.setHeader(
+      'Content-Type',
+      asset.mime_type || 'application/octet-stream',
+    );
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return res.status(200).send(buffer);
+  } catch (error) {
+    console.error('Error serving mudra asset image:', error);
+    return res.status(500).json({ error: 'Failed to load mudra asset image' });
+  }
+};
+
+exports.updateMudraAssetStatus = async (req, res) => {
+  try {
+    await ensureMudraAssetsTable();
+
+    const assetId = Number(req.params?.id);
+    if (!Number.isInteger(assetId) || assetId <= 0) {
+      return res.status(400).json({ error: 'Valid asset id is required' });
+    }
+
+    if (typeof req.body?.isActive === 'undefined') {
+      return res.status(400).json({ error: 'isActive is required' });
+    }
+
+    const isActive = parseBoolean(req.body.isActive, true);
+
+    const { rows } = await localDb.query(
+      `UPDATE mudra_assets
+       SET is_active = $2,
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, mudra_key, mudra_name, is_active, updated_at;`,
+      [assetId, isActive],
+    );
+
+    const updatedAsset = rows?.[0];
+    if (!updatedAsset) {
+      return res.status(404).json({ error: 'Mudra asset not found' });
+    }
+
+    return res.status(200).json({
+      message: `Mudra asset marked as ${updatedAsset.is_active ? 'active' : 'inactive'}`,
+      asset: {
+        id: updatedAsset.id,
+        mudraKey: updatedAsset.mudra_key,
+        mudraName: updatedAsset.mudra_name,
+        isActive: updatedAsset.is_active,
+        updatedAt: updatedAsset.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error('Error updating mudra asset status:', error);
+    return res
+      .status(500)
+      .json({ error: 'Failed to update mudra asset status' });
+  }
+};
+
+exports.deleteMudraAsset = async (req, res) => {
+  try {
+    await ensureMudraAssetsTable();
+
+    const assetId = Number(req.params?.id);
+    if (!Number.isInteger(assetId) || assetId <= 0) {
+      return res.status(400).json({ error: 'Valid asset id is required' });
+    }
+
+    const { rows } = await localDb.query(
+      `SELECT id, object_name
+       FROM mudra_assets
+       WHERE id = $1
+       LIMIT 1;`,
+      [assetId],
+    );
+
+    const targetAsset = rows?.[0];
+    if (!targetAsset) {
+      return res.status(404).json({ error: 'Mudra asset not found' });
+    }
+
+    try {
+      await storageService.removeObject(targetAsset.object_name);
+    } catch (storageError) {
+      console.warn(
+        `[mudra-assets] Failed to remove object ${targetAsset.object_name} from storage:`,
+        storageError?.message || storageError,
+      );
+    }
+
+    await localDb.query('DELETE FROM mudra_assets WHERE id = $1;', [assetId]);
+
+    return res.status(200).json({
+      message: 'Mudra asset deleted successfully',
+      id: assetId,
+    });
+  } catch (error) {
+    console.error('Error deleting mudra asset:', error);
+    return res.status(500).json({ error: 'Failed to delete mudra asset' });
   }
 };
 

@@ -1,3 +1,15 @@
+const sanitizeModelArtifacts = (input = '') => {
+  let text = String(input || '');
+
+  text = text
+    .replace(/【\s*\d+\s*†\s*L\d+(?:\s*[-–]\s*L?\d+)?\s*】/g, '')
+    .replace(/\[\s*\d+\s*†\s*L\d+(?:\s*[-–]\s*L?\d+)?\s*\]/g, '');
+
+  text = text.replace(/^```[a-zA-Z0-9_-]*\s*$/gm, '').replace(/^```\s*$/gm, '');
+
+  return text.replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+};
+
 const preprocessChatResponse = (rawResponse) => {
   try {
     const response = {
@@ -13,7 +25,7 @@ const preprocessChatResponse = (rawResponse) => {
     };
 
     // Clean and normalize the response
-    const cleanResponse = rawResponse.trim();
+    const cleanResponse = sanitizeModelArtifacts(rawResponse);
 
     // Extract short answer (content before first header or separator)
     let shortAnswerMatch = null;

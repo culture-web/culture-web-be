@@ -4,6 +4,7 @@
  */
 const {
   minioClient,
+  presignClient,
   BUCKET_NAME,
   ensureBucket,
 } = require('../client/minioClient');
@@ -51,6 +52,20 @@ const getObject = async (objectName) => {
     stream.on('end', () => resolve(Buffer.concat(chunks)));
     stream.on('error', reject);
   });
+};
+
+/**
+ * Get a presigned URL for downloading an object
+ * @param {string} objectName
+ * @param {number} expirySeconds - URL expiry in seconds
+ * @returns {Promise<string>}
+ */
+const getPresignedGetUrl = async (objectName, expirySeconds = 3600) => {
+  await init();
+  const safeExpiry = Number.isFinite(Number(expirySeconds))
+    ? Math.max(60, Math.min(7 * 24 * 3600, Math.round(Number(expirySeconds))))
+    : 3600;
+  return presignClient.presignedGetObject(BUCKET_NAME, objectName, safeExpiry);
 };
 
 /**
@@ -207,6 +222,7 @@ const folderExists = async (folderName) => {
 module.exports = {
   putObject,
   getObject,
+  getPresignedGetUrl,
   objectExists,
   removeObject,
   removeObjectsByPrefix,

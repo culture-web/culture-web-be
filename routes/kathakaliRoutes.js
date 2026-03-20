@@ -1,6 +1,11 @@
 const express = require('express');
 const multer = require('multer');
-const { authenticateToken, optionalAuth } = require('../middleware/authMiddleware');
+const {
+  authenticateToken,
+  optionalAuth,
+  verifyAdminToken,
+  requireKbRoles,
+} = require('../middleware/authMiddleware');
 const make = require('../middleware/makeMulterMiddleware');
 
 // Multer setup for handling file uploads
@@ -33,6 +38,37 @@ router.post(
   optionalAuth,
   multerUploadErrorMiddleware,
   kathakaliController.chatMudras,
+);
+
+router.post(
+  '/mudras/assets/upload',
+  verifyAdminToken,
+  requireKbRoles('admin'),
+  multerUploadErrorMiddleware,
+  kathakaliController.uploadMudraAsset,
+);
+
+router.get('/mudras/assets', optionalAuth, kathakaliController.listMudraAssets);
+
+router.get(
+  '/mudras/assets/:id/image',
+  optionalAuth,
+  kathakaliController.getMudraAssetImage,
+);
+
+router.patch(
+  '/mudras/assets/:id/status',
+  verifyAdminToken,
+  requireKbRoles('admin'),
+  express.json(),
+  kathakaliController.updateMudraAssetStatus,
+);
+
+router.delete(
+  '/mudras/assets/:id',
+  verifyAdminToken,
+  requireKbRoles('admin'),
+  kathakaliController.deleteMudraAsset,
 );
 
 router.get(

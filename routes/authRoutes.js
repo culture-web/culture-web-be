@@ -11,7 +11,11 @@ const {
 router.post('/login', authController.login);
 
 // Supabase session -> KB token exchange (Supabase authenticated)
-router.post('/supabase-kb-login', authenticateToken, authController.supabaseKbLogin);
+router.post(
+  '/supabase-kb-login',
+  authenticateToken,
+  authController.supabaseKbLogin,
+);
 
 // Verify token endpoint (protected)
 router.get('/verify', verifyAdminToken, authController.verify);

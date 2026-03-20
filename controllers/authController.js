@@ -6,9 +6,7 @@ const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
 const { JWT_SECRET } = require('../middleware/authMiddleware');
 const supabaseAdminClient = require('../client/supabaseClient');
-const {
-  normalizeRole,
-} = require('../services/kbUserService');
+const { normalizeRole } = require('../services/kbUserService');
 
 const { SUPABASE_URL, SUPABASE_ANON_KEY } = process.env;
 const supabaseAuthClient =
@@ -21,13 +19,12 @@ const supabaseAuthClient =
  * POST /api/auth/login
  * Body: { username, password } or { email, password }
  */
-exports.login = async (req, res) => {
-  return res.status(410).json({
+exports.login = async (req, res) =>
+  res.status(410).json({
     error: 'Deprecated',
     message:
       'Legacy KB login is disabled. Please sign in with Supabase at /sign-in.',
   });
-};
 
 /**
  * Verify token endpoint
@@ -66,13 +63,15 @@ exports.changePassword = async (req, res) => {
         });
       }
 
-      const email = String(req.user?.email || '').trim().toLowerCase();
+      const email = String(req.user?.email || '')
+        .trim()
+        .toLowerCase();
       if (!email) {
         return res.status(400).json({ error: 'User email is required' });
       }
 
-      const { error: verifyError } = await supabaseAuthClient.auth
-        .signInWithPassword({
+      const { error: verifyError } =
+        await supabaseAuthClient.auth.signInWithPassword({
           email,
           password: String(currentPassword),
         });
@@ -84,10 +83,13 @@ exports.changePassword = async (req, res) => {
         });
       }
 
-      const { error: updateError } = await supabaseAdminClient.auth.admin
-        .updateUserById(String(req.user.id), {
-          password: String(newPassword),
-        });
+      const { error: updateError } =
+        await supabaseAdminClient.auth.admin.updateUserById(
+          String(req.user.id),
+          {
+            password: String(newPassword),
+          },
+        );
 
       if (updateError) {
         return res.status(500).json({
@@ -95,12 +97,15 @@ exports.changePassword = async (req, res) => {
         });
       }
 
-      return res.status(200).json({ success: true, message: 'Password updated' });
+      return res
+        .status(200)
+        .json({ success: true, message: 'Password updated' });
     }
 
     return res.status(410).json({
       error: 'Deprecated',
-      message: 'Legacy KB password change is disabled. Use Supabase login users.',
+      message:
+        'Legacy KB password change is disabled. Use Supabase login users.',
     });
   } catch (error) {
     return res
@@ -132,7 +137,9 @@ exports.supabaseKbLogin = async (req, res) => {
     }
 
     const userId = String(req.user?.id || '').trim();
-    const email = String(req.user?.email || '').trim().toLowerCase();
+    const email = String(req.user?.email || '')
+      .trim()
+      .toLowerCase();
     const username = email
       ? email.split('@')[0]
       : `supabase-${userId.slice(0, 8) || 'user'}`;
