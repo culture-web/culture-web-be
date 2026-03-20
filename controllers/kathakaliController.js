@@ -21,6 +21,7 @@ const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
 const storageService = require('../services/minioStorageService');
 const ProficiencyAssessmentService = require('../services/proficiencyAssessmentService');
+
 const MULTI_TURN_MAX_PREVIOUS_TURNS = 2;
 const MULTI_TURN_HISTORY_MESSAGE_LIMIT = MULTI_TURN_MAX_PREVIOUS_TURNS * 2;
 
@@ -57,17 +58,17 @@ const buildMultiTurnTeachingGuidance = (
   const lowerCurrent = currentQuery.toLowerCase();
 
   const explicitTopicReset =
-    lowerCurrent.includes('new sequence')
-    || lowerCurrent.includes('new scene')
-    || lowerCurrent.includes('change topic')
-    || lowerCurrent.includes('different story')
-    || lowerCurrent.includes('start over');
+    lowerCurrent.includes('new sequence') ||
+    lowerCurrent.includes('new scene') ||
+    lowerCurrent.includes('change topic') ||
+    lowerCurrent.includes('different story') ||
+    lowerCurrent.includes('start over');
 
   const requestedExpressionRefinement =
-    lowerCurrent.includes('expressive')
-    || lowerCurrent.includes('emotion')
-    || lowerCurrent.includes('joy')
-    || lowerCurrent.includes('playful');
+    lowerCurrent.includes('expressive') ||
+    lowerCurrent.includes('emotion') ||
+    lowerCurrent.includes('joy') ||
+    lowerCurrent.includes('playful');
 
   const guidance = [
     `Conversation continuity is enabled for the last ${MULTI_TURN_MAX_PREVIOUS_TURNS} turn(s).`,
@@ -84,7 +85,9 @@ const buildMultiTurnTeachingGuidance = (
   }
 
   if (latestUserQuery) {
-    guidance.push(`Most recent prior refinement request: "${latestUserQuery}".`);
+    guidance.push(
+      `Most recent prior refinement request: "${latestUserQuery}".`,
+    );
   }
 
   guidance.push(
@@ -201,7 +204,10 @@ const writeLlmAuditTrail = async (
       ],
     );
   } catch (auditError) {
-    console.warn('[LLM AUDIT] Failed to persist LLM audit trail:', auditError.message || auditError);
+    console.warn(
+      '[LLM AUDIT] Failed to persist LLM audit trail:',
+      auditError.message || auditError,
+    );
   }
 };
 
@@ -279,7 +285,9 @@ const deriveMudraName = (mudraKey = '') =>
 
 const parseTags = (input) => {
   if (Array.isArray(input)) {
-    return [...new Set(input.map((tag) => String(tag || '').trim()).filter(Boolean))].slice(0, 30);
+    return [
+      ...new Set(input.map((tag) => String(tag || '').trim()).filter(Boolean)),
+    ].slice(0, 30);
   }
 
   const raw = String(input || '').trim();
@@ -288,13 +296,24 @@ const parseTags = (input) => {
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return [...new Set(parsed.map((tag) => String(tag || '').trim()).filter(Boolean))].slice(0, 30);
+      return [
+        ...new Set(
+          parsed.map((tag) => String(tag || '').trim()).filter(Boolean),
+        ),
+      ].slice(0, 30);
     }
   } catch {
     // Fall back to comma-separated parser
   }
 
-  return [...new Set(raw.split(',').map((tag) => tag.trim()).filter(Boolean))].slice(0, 30);
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 30);
 };
 
 const guessExtensionFromMime = (mime = '') => {
@@ -347,7 +366,9 @@ const shouldRunMudraAssetLoop = (query = '', historyMessages = []) => {
   }
 
   const current = String(query || '').toLowerCase();
-  const hasHint = MUDRA_ASSET_INTENT_HINTS.some((hint) => current.includes(hint));
+  const hasHint = MUDRA_ASSET_INTENT_HINTS.some((hint) =>
+    current.includes(hint),
+  );
 
   if (hasHint) {
     return { shouldRun: true, reason: 'query:intent-hint' };
@@ -369,7 +390,9 @@ const shouldRunMudraAssetLoop = (query = '', historyMessages = []) => {
 const uniqueAssetsByMudraKey = (assets = []) => {
   const seen = new Set();
   return (assets || []).filter((asset) => {
-    const key = String(asset?.mudraKey || '').trim().toLowerCase();
+    const key = String(asset?.mudraKey || '')
+      .trim()
+      .toLowerCase();
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -383,18 +406,25 @@ const runMudraAssetLookupLoop = async (
   const triedQueries = [];
   let matches = [];
 
-  for (const query of candidateQueries) {
+  await (candidateQueries || []).reduce(async (previousPromise, query) => {
+    await previousPromise;
+
+    if (matches.length >= limit) return;
+
     const normalized = String(query || '').trim();
-    if (!normalized) continue;
+    if (!normalized) return;
     triedQueries.push(normalized);
 
-    // eslint-disable-next-line no-await-in-loop
-    const found = await findMudraAssetsByQuery(normalized, { limit, expiresIn });
+    // eslint-disable-next-line no-use-before-define
+    const found = await findMudraAssetsByQuery(normalized, {
+      limit,
+      expiresIn,
+    });
+
     if (Array.isArray(found) && found.length > 0) {
-      matches = uniqueAssetsByMudraKey([...matches, ...found]);
-      if (matches.length >= limit) break;
+      matches = uniqueAssetsByMudraKey([].concat(matches, found));
     }
-  }
+  }, Promise.resolve());
 
   return {
     matches: uniqueAssetsByMudraKey(matches).slice(0, limit),
@@ -402,10 +432,7 @@ const runMudraAssetLookupLoop = async (
   };
 };
 
-const findMudraAssetsByQuery = async (
-  query,
-  { limit = 4 } = {},
-) => {
+async function findMudraAssetsByQuery(query, { limit = 4 } = {}) {
   await ensureMudraAssetsTable();
 
   const terms = normalizeMudraSearchTerms(query);
@@ -461,7 +488,7 @@ const findMudraAssetsByQuery = async (
     sortOrder: asset.sort_order,
     tags: Array.isArray(asset.tags) ? asset.tags : [],
   }));
-};
+}
 
 // Helper function to classify based on the endpoint for single image
 const classifyImageSingle = async (req, res, apiEndpoint) => {
@@ -961,13 +988,14 @@ exports.chatMudras = async (req, res) => {
 
     let historyMessages = [];
     if (multiTurnOptimizationValue && ownedSessionId) {
-      const { data: recentMessages, error: recentMessagesError } = await supabase
-        .from('messages')
-        .select('role, content, created_at')
-        .eq('session_id', ownedSessionId)
-        .in('role', ['user', 'assistant'])
-        .order('created_at', { ascending: false })
-        .limit(MULTI_TURN_HISTORY_MESSAGE_LIMIT);
+      const { data: recentMessages, error: recentMessagesError } =
+        await supabase
+          .from('messages')
+          .select('role, content, created_at')
+          .eq('session_id', ownedSessionId)
+          .in('role', ['user', 'assistant'])
+          .order('created_at', { ascending: false })
+          .limit(MULTI_TURN_HISTORY_MESSAGE_LIMIT);
 
       if (recentMessagesError) {
         console.warn(
@@ -983,16 +1011,21 @@ exports.chatMudras = async (req, res) => {
           }))
           .filter((row) => row.role && row.content);
       }
-    } else if (multiTurnOptimizationValue && Array.isArray(requestHistoryMessages)) {
+    } else if (
+      multiTurnOptimizationValue &&
+      Array.isArray(requestHistoryMessages)
+    ) {
       historyMessages = requestHistoryMessages
         .map((row) => ({
-          role: String(row?.role || '').trim().toLowerCase(),
+          role: String(row?.role || '')
+            .trim()
+            .toLowerCase(),
           content: String(row?.content || '').trim(),
         }))
         .filter(
           (row) =>
-            (row.role === 'user' || row.role === 'assistant')
-            && row.content.length > 0,
+            (row.role === 'user' || row.role === 'assistant') &&
+            row.content.length > 0,
         )
         .slice(-MULTI_TURN_HISTORY_MESSAGE_LIMIT);
     }
@@ -1486,7 +1519,9 @@ exports.uploadMudraAsset = async (req, res) => {
     }
 
     if (!String(req.file.mimetype || '').startsWith('image/')) {
-      return res.status(400).json({ error: 'Only image uploads are supported' });
+      return res
+        .status(400)
+        .json({ error: 'Only image uploads are supported' });
     }
 
     const {
@@ -1501,30 +1536,36 @@ exports.uploadMudraAsset = async (req, res) => {
     } = req.body || {};
 
     const inferredKey =
-      deriveMudraKey(mudraKeyInput)
-      || deriveMudraKey(mudraNameInput)
-      || deriveMudraKey(fileNameInput)
-      || deriveMudraKey(req.file.originalname);
+      deriveMudraKey(mudraKeyInput) ||
+      deriveMudraKey(mudraNameInput) ||
+      deriveMudraKey(fileNameInput) ||
+      deriveMudraKey(req.file.originalname);
 
     if (!inferredKey) {
-      return res.status(400).json({ error: 'Unable to derive mudra key. Please provide mudraKey.' });
+      return res.status(400).json({
+        error: 'Unable to derive mudra key. Please provide mudraKey.',
+      });
     }
 
-    const mudraName = String(mudraNameInput || deriveMudraName(inferredKey)).trim();
+    const mudraName = String(
+      mudraNameInput || deriveMudraName(inferredKey),
+    ).trim();
     if (!mudraName) {
       return res.status(400).json({ error: 'mudraName is required' });
     }
 
-    const rawFileName = String(fileNameInput || req.file.originalname || `${inferredKey}.png`)
+    const rawFileName = String(
+      fileNameInput || req.file.originalname || `${inferredKey}.png`,
+    )
       .trim()
       .replace(/\\/g, '/')
       .split('/')
       .pop();
 
-    const safePrefix = String(objectPrefix || 'mudras/images')
-      .trim()
-      .replace(/^\/+|\/+$/g, '')
-      || 'mudras/images';
+    const safePrefix =
+      String(objectPrefix || 'mudras/images')
+        .trim()
+        .replace(/^\/+|\/+$/g, '') || 'mudras/images';
 
     const hasExtension = /\.[a-z0-9]+$/i.test(rawFileName);
     const normalizedFileName = hasExtension
@@ -1538,7 +1579,11 @@ exports.uploadMudraAsset = async (req, res) => {
     const objectName = `${safePrefix}/${normalizedFileName}`;
     validateObjectName(objectName);
 
-    await storageService.putObject(objectName, req.file.buffer, req.file.mimetype);
+    await storageService.putObject(
+      objectName,
+      req.file.buffer,
+      req.file.mimetype,
+    );
 
     const parsedTags = parseTags(tags);
     const activeFlag = parseBoolean(isActive, true);
@@ -1600,7 +1645,8 @@ exports.uploadMudraAsset = async (req, res) => {
   } catch (error) {
     if (error?.code === '23505') {
       return res.status(409).json({
-        error: 'Mudra key or object name already exists. Please use a unique key/file name.',
+        error:
+          'Mudra key or object name already exists. Please use a unique key/file name.',
       });
     }
 
@@ -1615,8 +1661,8 @@ exports.listMudraAssets = async (req, res) => {
     await ensureMudraAssetsTable();
 
     const limit = Math.round(clampNumber(req.query?.limit, 1, 100, 24));
-    const includeInactive = String(req.query?.includeInactive || 'false')
-      .toLowerCase() === 'true';
+    const includeInactive =
+      String(req.query?.includeInactive || 'false').toLowerCase() === 'true';
     const search = String(req.query?.search || '').trim();
 
     const whereClauses = [];
@@ -1709,7 +1755,10 @@ exports.getMudraAssetImage = async (req, res) => {
     }
 
     const buffer = await storageService.getObject(asset.object_name);
-    res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream');
+    res.setHeader(
+      'Content-Type',
+      asset.mime_type || 'application/octet-stream',
+    );
     res.setHeader('Cache-Control', 'public, max-age=300');
     return res.status(200).send(buffer);
   } catch (error) {
@@ -1759,7 +1808,9 @@ exports.updateMudraAssetStatus = async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating mudra asset status:', error);
-    return res.status(500).json({ error: 'Failed to update mudra asset status' });
+    return res
+      .status(500)
+      .json({ error: 'Failed to update mudra asset status' });
   }
 };
 

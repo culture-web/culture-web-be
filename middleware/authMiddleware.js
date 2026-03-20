@@ -8,8 +8,8 @@ const JWT_SECRET =
 // Supabase JWT Configuration
 const { SUPABASE_URL } = process.env;
 const SUPABASE_JWT_ISSUER =
-  process.env.SUPABASE_JWT_ISSUER
-  || (SUPABASE_URL ? `${String(SUPABASE_URL).replace(/\/$/, '')}/auth/v1` : '');
+  process.env.SUPABASE_JWT_ISSUER ||
+  (SUPABASE_URL ? `${String(SUPABASE_URL).replace(/\/$/, '')}/auth/v1` : '');
 
 // Initialize jose functions and JWKS lazily
 let joseModule = null;
@@ -24,7 +24,7 @@ const decodeJwtPart = (part) => {
       '=',
     );
     return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
-  } catch {
+  } catch (error) {
     return null;
   }
 };
@@ -42,7 +42,8 @@ const isSupabaseJwtCandidate = (token) => {
   const iss = String(payload?.iss || '');
 
   // Supabase access tokens are asymmetric and should match configured issuer
-  const asymmetricAlg = alg.startsWith('RS') || alg.startsWith('ES') || alg === 'EDDSA';
+  const asymmetricAlg =
+    alg.startsWith('RS') || alg.startsWith('ES') || alg === 'EDDSA';
   if (!asymmetricAlg) return false;
   if (!SUPABASE_JWT_ISSUER) return asymmetricAlg;
   return iss.startsWith(SUPABASE_JWT_ISSUER);
@@ -253,9 +254,13 @@ const optionalAuth = async (req, res, next) => {
   } catch (error) {
     // For optional auth, if token is invalid, we still continue without user
     // but we log the error for debugging
-    const debugEnabled = String(process.env.AUTH_DEBUG || '').toLowerCase() === 'true';
+    const debugEnabled =
+      String(process.env.AUTH_DEBUG || '').toLowerCase() === 'true';
     if (debugEnabled) {
-      console.warn('Optional JWT verification failed, continuing anonymously:', error?.message || error);
+      console.warn(
+        'Optional JWT verification failed, continuing anonymously:',
+        error?.message || error,
+      );
     }
     req.user = null;
     req.token = null;

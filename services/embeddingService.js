@@ -171,8 +171,8 @@ class EmbeddingService {
     const normalizedFullTextWeight =
       totalWeight > 0 ? fullTextWeight / totalWeight : 0.3;
     const deployTarget =
-      typeof retrievalOptions?.deployTarget === 'string'
-      && retrievalOptions.deployTarget.trim().length > 0
+      typeof retrievalOptions?.deployTarget === 'string' &&
+      retrievalOptions.deployTarget.trim().length > 0
         ? retrievalOptions.deployTarget.trim().toLowerCase()
         : null;
 

@@ -1,5 +1,6 @@
 const Minio = require('minio');
 const fs = require('fs');
+const url = require('url');
 
 // Load environment variables with validation
 const { MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET } =
@@ -14,17 +15,19 @@ const MINIO_PUBLIC_PORT = Number(
   process.env.MINIO_PUBLIC_PORT || MINIO_PORT || 9000,
 );
 const MINIO_PUBLIC_USE_SSL =
-  String(process.env.MINIO_PUBLIC_USE_SSL || '').trim().toLowerCase() === 'true';
+  String(process.env.MINIO_PUBLIC_USE_SSL || '')
+    .trim()
+    .toLowerCase() === 'true';
 const isRunningInDocker = fs.existsSync('/.dockerenv');
 const normalizedEndpoint = String(MINIO_ENDPOINT || '').trim();
 const shouldUseMinioServiceName =
-  isRunningInDocker
-  && (!normalizedEndpoint
-    || normalizedEndpoint === 'localhost'
-    || normalizedEndpoint === '127.0.0.1');
+  isRunningInDocker &&
+  (!normalizedEndpoint ||
+    normalizedEndpoint === 'localhost' ||
+    normalizedEndpoint === '127.0.0.1');
 const resolvedMinioEndpoint = shouldUseMinioServiceName
   ? 'minio'
-  : (normalizedEndpoint || 'minio');
+  : normalizedEndpoint || 'minio';
 
 // Validate required credentials (skip in test environment)
 if (process.env.NODE_ENV !== 'test') {
@@ -53,7 +56,7 @@ const parseEndpointHost = (endpoint) => {
   if (!endpoint) return '';
   if (endpoint.includes('://')) {
     try {
-      return new URL(endpoint).hostname;
+      return (new url.URL(endpoint).hostname || '').trim();
     } catch (error) {
       console.warn(
         '[MinIO] Failed to parse MINIO_PUBLIC_ENDPOINT URL, using raw value:',

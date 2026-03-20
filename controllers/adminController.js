@@ -263,7 +263,13 @@ const getActorFromRequest = (req) => ({
 
 const writeAdminAuditTrail = async (
   req,
-  { action, resourceType = null, resourceId = null, status = 'success', details = {} } = {},
+  {
+    action,
+    resourceType = null,
+    resourceId = null,
+    status = 'success',
+    details = {},
+  } = {},
 ) => {
   if (!action) return;
 
@@ -955,44 +961,60 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
     const allObjects = await storageService.listObjects('');
 
     // Process rows to extract enabled status from metadata
-    const processedRows = rows.map((row) => {
-      let enabled = true; // Default to true if no metadata
-      const targets = new Set();
+    const processedRows = rows
+      .map((row) => {
+        let enabled = true; // Default to true if no metadata
+        const targets = new Set();
 
-      // Check if any chunk has enabled explicitly set to false
-      if (row.all_metadata && Array.isArray(row.all_metadata)) {
-        for (const meta of row.all_metadata) {
-          if (meta && typeof meta === 'object' && meta.enabled === false) {
-            enabled = false;
-          }
-          if (meta && typeof meta === 'object' && Array.isArray(meta.deployTargets)) {
-            meta.deployTargets
-              .map((target) => String(target || '').trim().toLowerCase())
-              .filter(Boolean)
-              .forEach((target) => targets.add(target));
-          }
-          if (meta && typeof meta === 'object' && typeof meta.deployTarget === 'string' && meta.deployTarget.trim()) {
-            targets.add(meta.deployTarget.trim().toLowerCase());
+        // Check if any chunk has enabled explicitly set to false
+        if (row.all_metadata && Array.isArray(row.all_metadata)) {
+          for (const meta of row.all_metadata) {
+            if (meta && typeof meta === 'object' && meta.enabled === false) {
+              enabled = false;
+            }
+            if (
+              meta &&
+              typeof meta === 'object' &&
+              Array.isArray(meta.deployTargets)
+            ) {
+              meta.deployTargets
+                .map((target) =>
+                  String(target || '')
+                    .trim()
+                    .toLowerCase(),
+                )
+                .filter(Boolean)
+                .forEach((target) => targets.add(target));
+            }
+            if (
+              meta &&
+              typeof meta === 'object' &&
+              typeof meta.deployTarget === 'string' &&
+              meta.deployTarget.trim()
+            ) {
+              targets.add(meta.deployTarget.trim().toLowerCase());
+            }
           }
         }
-      }
 
-      let deployTarget = 'shared';
-      if (targets.size === 1) {
-        deployTarget = Array.from(targets)[0];
-      } else if (targets.size > 1) {
-        deployTarget = 'mixed';
-      }
+        let deployTarget = 'shared';
+        if (targets.size === 1) {
+          const [singleTarget] = Array.from(targets);
+          deployTarget = singleTarget;
+        } else if (targets.size > 1) {
+          deployTarget = 'mixed';
+        }
 
-      return {
-        name: row.name,
-        upload_date: row.upload_date,
-        chunk_number: row.chunk_number,
-        enabled,
-        deploy_target: deployTarget,
-        deploy_targets: Array.from(targets),
-      };
-    }).filter((row) => !isBlockedKbOverviewFile(row.name));
+        return {
+          name: row.name,
+          upload_date: row.upload_date,
+          chunk_number: row.chunk_number,
+          enabled,
+          deploy_target: deployTarget,
+          deploy_targets: Array.from(targets),
+        };
+      })
+      .filter((row) => !isBlockedKbOverviewFile(row.name));
 
     const existingNames = new Set(processedRows.map((row) => row.name));
     const stagedRows = allObjects
@@ -1271,8 +1293,14 @@ exports.setFileEnabled = async (req, res) => {
         .status(400)
         .json({ error: 'fileName and enabled are required' });
     }
-    if (enabled && normalizedDeployTarget && !allowedTargets.has(normalizedDeployTarget)) {
-      return res.status(400).json({ error: 'deployTarget must be one of mudras, kathakali, shared' });
+    if (
+      enabled &&
+      normalizedDeployTarget &&
+      !allowedTargets.has(normalizedDeployTarget)
+    ) {
+      return res.status(400).json({
+        error: 'deployTarget must be one of mudras, kathakali, shared',
+      });
     }
 
     // Get all chunks for this file
@@ -1289,11 +1317,18 @@ exports.setFileEnabled = async (req, res) => {
         const targetSet = new Set();
         if (Array.isArray(metadata.deployTargets)) {
           metadata.deployTargets
-            .map((target) => String(target || '').trim().toLowerCase())
+            .map((target) =>
+              String(target || '')
+                .trim()
+                .toLowerCase(),
+            )
             .filter(Boolean)
             .forEach((target) => targetSet.add(target));
         }
-        if (typeof metadata.deployTarget === 'string' && metadata.deployTarget.trim()) {
+        if (
+          typeof metadata.deployTarget === 'string' &&
+          metadata.deployTarget.trim()
+        ) {
           targetSet.add(metadata.deployTarget.trim().toLowerCase());
         }
         if (normalizedDeployTarget) {
@@ -1317,7 +1352,7 @@ exports.setFileEnabled = async (req, res) => {
       'set_enabled',
       {
         enabled: Boolean(enabled),
-        deployTarget: enabled ? (normalizedDeployTarget || null) : null,
+        deployTarget: enabled ? normalizedDeployTarget || null : null,
         mode: enabled ? 'add_target' : 'disable_all',
       },
       { captureSnapshot: true },
@@ -1342,24 +1377,29 @@ exports.setFileEnabled = async (req, res) => {
       const metadata = row.metadata || {};
       if (Array.isArray(metadata.deployTargets)) {
         metadata.deployTargets
-          .map((target) => String(target || '').trim().toLowerCase())
+          .map((target) =>
+            String(target || '')
+              .trim()
+              .toLowerCase(),
+          )
           .filter(Boolean)
           .forEach((target) => deployTargetsSet.add(target));
       }
-      if (typeof metadata.deployTarget === 'string' && metadata.deployTarget.trim()) {
+      if (
+        typeof metadata.deployTarget === 'string' &&
+        metadata.deployTarget.trim()
+      ) {
         deployTargetsSet.add(metadata.deployTarget.trim().toLowerCase());
       }
     });
 
-    return res
-      .status(200)
-      .json({
-        message: 'File enabled state updated',
-        fileName,
-        enabled,
-        deployTarget: enabled ? (normalizedDeployTarget || null) : null,
-        deployTargets: Array.from(deployTargetsSet),
-      });
+    return res.status(200).json({
+      message: 'File enabled state updated',
+      fileName,
+      enabled,
+      deployTarget: enabled ? normalizedDeployTarget || null : null,
+      deployTargets: Array.from(deployTargetsSet),
+    });
   } catch (error) {
     console.error('Error setting file enabled:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -2483,9 +2523,9 @@ exports.createUser = async (req, res) => {
     } catch (error) {
       const errorMessage = String(error.message || '').toLowerCase();
       if (
-        errorMessage.includes('duplicate key')
-        || errorMessage.includes('already exists')
-        || errorMessage.includes('already registered')
+        errorMessage.includes('duplicate key') ||
+        errorMessage.includes('already exists') ||
+        errorMessage.includes('already registered')
       ) {
         return res.status(409).json({ error: 'Username already exists' });
       }

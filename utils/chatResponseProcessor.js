@@ -5,13 +5,9 @@ const sanitizeModelArtifacts = (input = '') => {
     .replace(/【\s*\d+\s*†\s*L\d+(?:\s*[-–]\s*L?\d+)?\s*】/g, '')
     .replace(/\[\s*\d+\s*†\s*L\d+(?:\s*[-–]\s*L?\d+)?\s*\]/g, '');
 
-  text = text
-    .replace(/^```[a-zA-Z0-9_-]*\s*$/gm, '')
-    .replace(/^```\s*$/gm, '');
+  text = text.replace(/^```[a-zA-Z0-9_-]*\s*$/gm, '').replace(/^```\s*$/gm, '');
 
-  return text
-    .replace(/\n\s*\n\s*\n+/g, '\n\n')
-    .trim();
+  return text.replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
 };
 
 const preprocessChatResponse = (rawResponse) => {
