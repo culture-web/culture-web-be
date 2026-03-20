@@ -51,7 +51,10 @@ jobs:
           echo "MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY }}" >> .env
           echo "MINIO_BUCKET=${{ secrets.MINIO_BUCKET }}" >> .env
           echo "MINIO_USE_SSL=${{ secrets.MINIO_USE_SSL }}" >> .env
-
+          echo "MINIO_PUBLIC_ENDPOINT=${{ secrets.MINIO_PUBLIC_ENDPOINT }}" >> .env
+          echo "MINIO_PUBLIC_PORT=${{ secrets.MINIO_PUBLIC_PORT }}" >> .env
+          echo "MINIO_PUBLIC_USE_SSL=${{ secrets.MINIO_PUBLIC_USE_SSL }}" >> .env
+          
       - name: Login to DockerHub
         run: echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u culture4web --password-stdin
 
