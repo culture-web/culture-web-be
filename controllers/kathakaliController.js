@@ -91,7 +91,7 @@ const buildMultiTurnTeachingGuidance = (
   }
 
   guidance.push(
-    'Respond like a Kathakali teacher progressively correcting a student over turns.',
+    'Respond by progressively correcting over turns.',
     'Keep core narrative entities/actions stable unless user explicitly changes storyline/topic.',
     'When refining, return: (1) Updated sequence steps, (2) expression cues',
   );
@@ -344,15 +344,13 @@ const MUDRA_ASSET_INTENT_HINTS = [
   'visual',
   'illustration',
   'diagram',
-  'learn',
-  'teach',
-  'example',
-  'mudra',
-  'gesture',
-  'how to do',
+  'display',
+  'can i see',
+  'show me',
+  'send image',
 ];
 
-const shouldRunMudraAssetLoop = (query = '', historyMessages = []) => {
+const shouldRunMudraAssetLoop = (query = '') => {
   const mode = String(process.env.MUDRA_ASSET_LOOKUP_MODE || 'auto')
     .trim()
     .toLowerCase();
@@ -372,16 +370,6 @@ const shouldRunMudraAssetLoop = (query = '', historyMessages = []) => {
 
   if (hasHint) {
     return { shouldRun: true, reason: 'query:intent-hint' };
-  }
-
-  const recentUserText = (historyMessages || [])
-    .filter((entry) => entry?.role === 'user' && entry?.content)
-    .slice(-2)
-    .map((entry) => String(entry.content).toLowerCase())
-    .join(' ');
-
-  if (MUDRA_ASSET_INTENT_HINTS.some((hint) => recentUserText.includes(hint))) {
-    return { shouldRun: true, reason: 'history:intent-hint' };
   }
 
   return { shouldRun: false, reason: 'auto:no-intent-hint' };
