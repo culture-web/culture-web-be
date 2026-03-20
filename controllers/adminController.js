@@ -55,6 +55,24 @@ const validateObjectName = (name) => {
   return name;
 };
 
+const KB_OVERVIEW_BLOCKED_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.bmp',
+  '.svg',
+  '.ico',
+]);
+
+const isBlockedKbOverviewFile = (fileName = '') => {
+  const lowerName = String(fileName || '').toLowerCase();
+  return Array.from(KB_OVERVIEW_BLOCKED_EXTENSIONS).some((ext) =>
+    lowerName.endsWith(ext),
+  );
+};
+
 // In-memory ingest job tracker (simple, non-persistent)
 const ingestJobs = new Map();
 let emitIngestJobStatus = () => {};
@@ -974,13 +992,14 @@ exports.getKnowledgeBaseFiles = async (req, res) => {
         deploy_target: deployTarget,
         deploy_targets: Array.from(targets),
       };
-    });
+    }).filter((row) => !isBlockedKbOverviewFile(row.name));
 
     const existingNames = new Set(processedRows.map((row) => row.name));
     const stagedRows = allObjects
       .filter((obj) => !!obj?.name)
       .filter((obj) => !obj.name.endsWith('/.keep'))
       .filter((obj) => !existingNames.has(obj.name))
+      .filter((obj) => !isBlockedKbOverviewFile(obj.name))
       .map((obj) => ({
         name: obj.name,
         upload_date: obj.lastModified || new Date().toISOString(),
@@ -1412,6 +1431,12 @@ exports.startParseFile = async (req, res) => {
     const chunkingConfig = getChunkingConfig(req.body || {});
     if (!fileName) {
       return res.status(400).json({ error: 'fileName is required' });
+    }
+
+    if (isBlockedKbOverviewFile(fileName)) {
+      return res.status(400).json({
+        error: 'This file type is not supported for KB parsing',
+      });
     }
 
     const { rows: activeRows } = await localDbClient.query(

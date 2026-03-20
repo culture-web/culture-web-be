@@ -8,7 +8,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "dev": "NODE_ENV=development node server.js",
-    "ingest:local": "node scripts/ingestLocalPdfs.js docs"
+    "ingest:local": "node scripts/ingestLocalPdfs.js docs",
+    "mudras:import": "node scripts/importMudraImages.js"
   },
   "keywords": [],
   "author": "",

@@ -15,6 +15,39 @@ const SUPABASE_JWT_ISSUER =
 let joseModule = null;
 let SUPABASE_JWT_KEYS = null;
 
+const decodeJwtPart = (part) => {
+  try {
+    if (!part || typeof part !== 'string') return null;
+    const normalized = part.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      '=',
+    );
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+};
+
+const inspectJwt = (token) => {
+  const [headerPart, payloadPart] = String(token || '').split('.');
+  const header = decodeJwtPart(headerPart) || {};
+  const payload = decodeJwtPart(payloadPart) || {};
+  return { header, payload };
+};
+
+const isSupabaseJwtCandidate = (token) => {
+  const { header, payload } = inspectJwt(token);
+  const alg = String(header?.alg || '').toUpperCase();
+  const iss = String(payload?.iss || '');
+
+  // Supabase access tokens are asymmetric and should match configured issuer
+  const asymmetricAlg = alg.startsWith('RS') || alg.startsWith('ES') || alg === 'EDDSA';
+  if (!asymmetricAlg) return false;
+  if (!SUPABASE_JWT_ISSUER) return asymmetricAlg;
+  return iss.startsWith(SUPABASE_JWT_ISSUER);
+};
+
 const initializeJose = async () => {
   if (!joseModule) {
     // eslint-disable-next-line node/no-unsupported-features/es-syntax
@@ -61,6 +94,13 @@ const authenticateToken = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({
         error: 'Access token required',
+      });
+    }
+
+    if (!isSupabaseJwtCandidate(token)) {
+      return res.status(401).json({
+        error: 'Token verification failed',
+        details: 'Unsupported token type for this endpoint',
       });
     }
 
@@ -169,20 +209,22 @@ const requireKbRoles =
 const optionalAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    console.log(
-      `🔍 [OptionalAuth] Authorization header: ${authHeader ? 'Present' : 'Not present'}`,
-    );
 
     const token =
       authHeader && authHeader.startsWith('Bearer ')
         ? authHeader.slice(7)
         : null;
 
-    console.log(`🔍 [OptionalAuth] Token extracted: ${token ? 'Yes' : 'No'}`);
-
     // If no token provided, continue without user info
     if (!token) {
-      console.log('🔍 [OptionalAuth] No token - setting user to null');
+      req.user = null;
+      req.token = null;
+      return next();
+    }
+
+    // Optional auth accepts requests with non-Supabase tokens (e.g. admin JWT);
+    // skip JWKS verification silently and continue as anonymous user.
+    if (!isSupabaseJwtCandidate(token)) {
       req.user = null;
       req.token = null;
       return next();
@@ -203,25 +245,18 @@ const optionalAuth = async (req, res, next) => {
       iat: payload.iat, // issued at time
     };
 
-    console.log(payload);
-
-    console.log(
-      `🔍 [OptionalAuth] User authenticated: ${user.id} (${user.email})`,
-    );
-
     // Attach user info to request object
     req.user = user;
     req.token = token;
 
     return next();
   } catch (error) {
-    console.error('Optional JWT verification error:', error);
-
     // For optional auth, if token is invalid, we still continue without user
     // but we log the error for debugging
-    console.warn(
-      'Invalid token provided to optional auth, continuing without user',
-    );
+    const debugEnabled = String(process.env.AUTH_DEBUG || '').toLowerCase() === 'true';
+    if (debugEnabled) {
+      console.warn('Optional JWT verification failed, continuing anonymously:', error?.message || error);
+    }
     req.user = null;
     req.token = null;
 
