@@ -6,6 +6,7 @@ const musicService = require('./musicService');
 const embeddingService = require('./embeddingService');
 const { preprocessChatResponse } = require('../utils/chatResponseProcessor');
 const ProficiencyAssessmentService = require('./proficiencyAssessmentService');
+const CurriculumService = require('./curriculumService');
 
 /**
  * Conversation History Service
@@ -14,6 +15,7 @@ const ProficiencyAssessmentService = require('./proficiencyAssessmentService');
 class ChatService {
   constructor() {
     this.proficiencyService = new ProficiencyAssessmentService();
+    this.curriculumService = new CurriculumService();
   }
 
   /**
@@ -65,6 +67,7 @@ class ChatService {
         // Generate AI response using the same logic as kathakali controller
         console.log('⚙️ [ChatService] Calling generateAIResponse...');
         const aiResponse = await this.generateAIResponse(
+          userId,
           sessionId,
           message,
           imageAnalysis,
@@ -110,7 +113,7 @@ class ChatService {
             '🎓 [ChatService] Scheduling asynchronous proficiency assessment...',
           );
           setImmediate(() => {
-            this.assessUserProficiency(userId, message, sessionId).catch(
+            this.updateUserProficiency(userId, message, sessionId).catch(
               (proficiencyError) => {
                 console.error(
                   '❌ [ChatService] Proficiency assessment failed:',
@@ -147,6 +150,7 @@ class ChatService {
 
   /**
    * Generate AI response with RAG capabilities
+   * @param {string} userId - User identifier for proficiency context
    * @param {string} sessionId - Session identifier for message history context
    * @param {string} query - User's message/question
    * @param {string} imageAnalysis - Optional image analysis context
@@ -156,6 +160,7 @@ class ChatService {
    * @returns {Promise<Object>} AI response
    */
   async generateAIResponse(
+    userId,
     sessionId,
     query,
     imageAnalysis = null,
@@ -360,6 +365,57 @@ class ChatService {
       }
     }
 
+    // Add user proficiency state misconceptions to the context
+    if (userId) {
+      try {
+        console.log(
+          '🧠 [ChatService] Fetching user misconceptions for context...',
+        );
+        const { data: misconceptions, error } = await supabase
+          .from('user_proficiency_state')
+          .select('node_id, last_evidence')
+          .eq('user_id', userId)
+          .eq('misconception_flag', true);
+
+        if (error) {
+          console.warn(
+            '⚠️ [ChatService] Error fetching misconceptions:',
+            error.message,
+          );
+        } else if (misconceptions && misconceptions.length > 0) {
+          const misconceptionContext = misconceptions
+            .map((m) => {
+              const concept = this.curriculumService.getConcept(m.node_id);
+              const conceptName = concept?.name || m.node_id;
+              return `${conceptName} (${m.last_evidence || 'misconception detected'})`;
+            })
+            .join(', ');
+
+          const contextMessage = `\n\nContext about user's learning progress: The user has shown some misconceptions in these areas: ${misconceptionContext}. Please provide accurate, helpful information that addresses these topics naturally in your response.`;
+
+          if (messages.find((msg) => msg.role === 'system')) {
+            messages[0].content += contextMessage;
+          } else {
+            messages.unshift({
+              role: 'system',
+              content: `You are a helpful assistant for a Kathakali cultural chatbot.${contextMessage}`,
+            });
+          }
+
+          console.log(
+            `✅ [ChatService] Added ${misconceptions.length} misconceptions to context`,
+          );
+        } else {
+          console.log('ℹ️ [ChatService] No misconceptions found for user');
+        }
+      } catch (misconceptionError) {
+        console.warn(
+          '⚠️ [ChatService] Failed to add misconceptions to context:',
+          misconceptionError.message,
+        );
+      }
+    }
+
     const chatCompletion = await client.chatCompletion({
       provider: 'together',
       model: 'openai/gpt-oss-120b',
@@ -377,6 +433,31 @@ class ChatService {
       `🆕 [ChatService] Creating new session for userId: ${userId || 'UNAUTHENTICATED'}`,
     );
 
+    // Check if user already has an active "New Conversation" session
+    try {
+      const { data: existingSession, error: checkError } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('title', 'New Conversation')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (!checkError && existingSession) {
+        console.log(
+          `♻️ [ChatService] Reusing existing "New Conversation" session: ${existingSession.id}`,
+        );
+        return existingSession;
+      }
+    } catch (checkError) {
+      // Continue with creation if check fails (not a critical error)
+      console.log(
+        'ℹ️ [ChatService] Could not check for existing session, proceeding with creation',
+      );
+    }
+
+    // Create new session if no existing "New Conversation" session found
     const { data, error } = await supabase
       .from('sessions')
       .insert({
@@ -979,7 +1060,7 @@ Event ${index + 1}:
    * @param {string} sessionId - Session ID for context
    * @returns {Promise<void>}
    */
-  async assessUserProficiency(userId, message, sessionId) {
+  async updateUserProficiency(userId, message, sessionId) {
     try {
       console.log(`🎓 [ChatService] Assessing proficiency for user: ${userId}`);
 
