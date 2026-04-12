@@ -1330,8 +1330,7 @@ Event ${index + 1}:
     for (let i = 0; i < messages.length; i += 1) {
       const message = messages[i];
       const isUserQuestion =
-        message.role === 'user' &&
-        message.content.includes('?'); // Only explicit questions with ?
+        message.role === 'user' && message.content.includes('?'); // Only explicit questions with ?
 
       // Keep Q&A pairs
       if (
