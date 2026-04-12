@@ -125,6 +125,9 @@ class ChatService {
           });
         }
 
+        // Trigger conversation compression asynchronously if needed
+        this.triggerConversationCompression(sessionId);
+
         console.log(
           '🎉 [ChatService] Returning user message + AI response + generated content',
         );
@@ -181,17 +184,36 @@ class ChatService {
       },
     ];
 
-    // Retrieve last 10 messages from the session for context
+    // Retrieve conversation summary and recent messages for context
+    let conversationSummary = '';
     let messageHistoryContext = '';
     if (sessionId) {
       try {
         console.log(
-          '📜 [ChatService] Retrieving message history for context...',
+          '📜 [ChatService] Retrieving conversation summary and message history...',
         );
-        const recentMessages = await this.getMessagesByChatSessionId(
+
+        // First, get the latest conversation summary if it exists
+        const { data: summaryData, error: summaryError } = await supabase
+          .from('messages')
+          .select('content')
+          .eq('session_id', sessionId)
+          .eq('is_summary', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!summaryError && summaryData) {
+          conversationSummary = summaryData.content;
+          console.log(
+            '✅ [ChatService] Found conversation summary for context',
+          );
+        }
+
+        // Then get recent non-summary messages for additional context
+        const recentMessages = await this.getRecentNonSummaryMessages(
           sessionId,
-          10,
-          0,
+          8, // Reduced from 10 to leave room for summary
         );
 
         if (recentMessages && recentMessages.length > 0) {
@@ -208,25 +230,37 @@ class ChatService {
 
           messageHistoryContext = `\n\nRecent conversation history:\n${historyLines.join('\n')}`;
           console.log(
-            `✅ [ChatService] Retrieved ${recentMessages.length} messages for context`,
+            `✅ [ChatService] Retrieved ${recentMessages.length} recent messages for context`,
           );
         }
       } catch (historyError) {
         console.warn(
-          '⚠️ [ChatService] Failed to retrieve message history:',
+          '⚠️ [ChatService] Failed to retrieve conversation context:',
           historyError.message,
         );
-        // Continue without history context if retrieval fails
+        // Continue without context if retrieval fails
       }
     }
 
-    // Add base system message with conversation history context
-    if (messageHistoryContext) {
-      messages.unshift({
-        role: 'system',
-        content: `You are a helpful assistant for a cultural chatbot. Please use the conversation history to provide contextually relevant responses.${messageHistoryContext}`,
-      });
+    // Add base system message with conversation summary and history context
+    let systemMessageContent =
+      'You are a helpful assistant for a cultural chatbot.';
+
+    if (conversationSummary) {
+      systemMessageContent += `\n\n${conversationSummary}`;
     }
+
+    if (messageHistoryContext) {
+      systemMessageContent += `\n\nPlease use the recent conversation history to provide contextually relevant responses.${messageHistoryContext}`;
+    } else {
+      systemMessageContent +=
+        ' Please provide accurate information about Kathakali performances, culture, ornaments, music, and traditions.';
+    }
+
+    messages.unshift({
+      role: 'system',
+      content: systemMessageContent,
+    });
 
     // Enhanced RAG: Categorize query and apply appropriate RAG strategy
     console.log('🤖 [ChatService] Categorizing query for enhanced RAG...');
@@ -423,6 +457,7 @@ class ChatService {
     });
 
     const responseMessage = chatCompletion.choices[0].message.content;
+    console.log('responseMessage', responseMessage);
     const chatbotResponse = preprocessChatResponse(responseMessage);
 
     return chatbotResponse;
@@ -591,6 +626,7 @@ class ChatService {
       .from('messages')
       .select('*')
       .eq('session_id', sessionId)
+      .eq('is_summary', false)
       .order('created_at', { ascending: true })
       .range(offset, offset + limit - 1);
 
@@ -599,6 +635,29 @@ class ChatService {
     }
 
     return data || [];
+  }
+
+  /**
+   * Get recent non-summary messages for a session (used for context in AI responses)
+   * @param {string} sessionId - Session identifier
+   * @param {number} limit - Maximum number of messages to retrieve
+   * @returns {Promise<Array>} Array of recent non-summary messages
+   */
+  async getRecentNonSummaryMessages(sessionId, limit = 8) {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('is_summary', false)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      throw new Error(`Failed to get recent messages: ${error.message}`);
+    }
+
+    // Return in chronological order (oldest first)
+    return (data || []).reverse();
   }
 
   /**
@@ -1087,6 +1146,354 @@ Event ${index + 1}:
       console.error('❌ [ChatService] Error in proficiency assessment:', error);
       // Don't throw - this is an async background task
     }
+  }
+
+  /**
+   * Check if a session needs conversation compression
+   * Uses a more sophisticated approach: compress when >50 messages OR >30 days old
+   * @param {string} sessionId - Session identifier
+   * @returns {Promise<boolean>} True if compression is needed
+   */
+  async shouldCompressConversation(sessionId) {
+    try {
+      // Check message count (>50 messages = compress)
+      const { count, error: countError } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('session_id', sessionId)
+        .eq('is_summary', false);
+
+      if (countError) {
+        console.error(
+          '❌ [ChatService] Error checking message count:',
+          countError,
+        );
+        return false;
+      }
+
+      // Check for old messages (>30 days = compress)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const { count: oldCount, error: oldError } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('session_id', sessionId)
+        .eq('is_summary', false)
+        .lt('created_at', thirtyDaysAgo.toISOString());
+
+      if (oldError) {
+        console.error(
+          '❌ [ChatService] Error checking old messages:',
+          oldError,
+        );
+      }
+
+      const shouldCompressByCount = count > 25; // Increased from 10 - need enough messages for meaningful compression
+      const shouldCompressByAge = (oldCount || 0) > 3; // Compress if >3 messages older than 30 days (lowered from 10)
+
+      const shouldCompress = shouldCompressByCount || shouldCompressByAge;
+
+      if (shouldCompress) {
+        console.log(
+          `📦 [ChatService] Session ${sessionId} needs compression:`,
+          `${count} total messages (${shouldCompressByCount ? 'EXCEEDS LIMIT' : 'OK'}),`,
+          `${oldCount || 0} old messages (${shouldCompressByAge ? 'EXCEEDS AGE LIMIT' : 'OK'})`,
+        );
+      }
+
+      return shouldCompress;
+    } catch (error) {
+      console.error(
+        '❌ [ChatService] Error in shouldCompressConversation:',
+        error,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Compress older conversation messages into a memory block
+   * @param {string} sessionId - Session identifier
+   * @returns {Promise<void>}
+   */
+  async compressConversationHistory(sessionId) {
+    try {
+      console.log(
+        `🗜️ [ChatService] Starting conversation compression for session: ${sessionId}`,
+      );
+
+      // Get all non-summary messages that haven't been summarized yet for this session, ordered by creation time
+      const { data: messages, error } = await supabase
+        .from('messages')
+        .select('id, role, content, created_at')
+        .eq('session_id', sessionId)
+        .eq('is_summary', false)
+        .eq('has_been_summarised', false)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!messages || messages.length <= 20) {
+        console.log(
+          `ℹ️ [ChatService] Not enough messages to compress (${messages?.length || 0})`,
+        );
+        return;
+      }
+
+      // Intelligent compression strategy:
+      // 1. Always keep the 8 most recent messages (matches AI context window)
+      // 2. From the older messages, keep important Q&A pairs
+      // 3. Compress the rest into summaries
+
+      const recentMessages = messages.slice(-8); // Keep last 8 messages (matches AI context)
+      const olderMessages = messages.slice(0, -8);
+
+      // Identify important Q&A pairs from older messages
+      const importantMessages = this.identifyImportantMessages(olderMessages);
+      const messagesToCompress = olderMessages.filter(
+        (msg) => !importantMessages.some((imp) => imp.id === msg.id),
+      );
+
+      console.log(
+        `📊 [ChatService] Intelligent compression: ${messages.length} total → ${recentMessages.length} recent + ${importantMessages.length} important + ${messagesToCompress.length} to compress`,
+      );
+
+      if (messagesToCompress.length === 0) {
+        console.log(
+          'ℹ️ [ChatService] No messages to compress after intelligent filtering',
+        );
+        return;
+      }
+
+      // Generate a summary of messages to compress
+      const conversationSummary =
+        await this.generateConversationSummary(messagesToCompress);
+
+      // Insert summary message
+      const { error: insertError } = await supabase.from('messages').insert({
+        session_id: sessionId,
+        role: 'system',
+        content: conversationSummary,
+        metadata: {
+          compressed: true,
+          original_message_count: messagesToCompress.length,
+          compression_type: 'intelligent',
+          kept_recent: recentMessages.length,
+          kept_important: importantMessages.length,
+        },
+        response_for: null,
+        is_summary: true,
+      });
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      // Mark compressed messages as summarized instead of deleting them
+      const { error: updateError } = await supabase
+        .from('messages')
+        .update({ has_been_summarised: true })
+        .in(
+          'id',
+          messagesToCompress.map((m) => m.id),
+        );
+
+      if (updateError) {
+        console.error(
+          '❌ [ChatService] Error marking messages as summarized:',
+          updateError,
+        );
+        // Don't throw here to avoid breaking the conversation
+      }
+
+      console.log(
+        `✅ [ChatService] Successfully compressed conversation for session: ${sessionId}`,
+      );
+    } catch (error) {
+      console.error('❌ [ChatService] Error compressing conversation:', error);
+      // Don't throw - compression failure shouldn't break chat
+    }
+  }
+
+  /**
+   * Identify important messages that should be preserved during compression
+   * Keeps Q&A pairs and user questions to maintain conversation context
+   * @param {Array} messages - Array of message objects
+   * @returns {Array} Array of important messages to keep
+   */
+  identifyImportantMessages(messages) {
+    const importantMessages = [];
+
+    for (let i = 0; i < messages.length; i += 1) {
+      const message = messages[i];
+      const isUserQuestion =
+        message.role === 'user' &&
+        message.content.includes('?'); // Only explicit questions with ?
+
+      // Keep Q&A pairs
+      if (
+        isUserQuestion &&
+        i + 1 < messages.length &&
+        messages[i + 1].role === 'assistant'
+      ) {
+        importantMessages.push(message); // User question
+        importantMessages.push(messages[i + 1]); // Assistant answer
+        i += 1; // Skip the next message since we already added it
+      }
+      // Keep standalone important user messages
+      else if (isUserQuestion) {
+        importantMessages.push(message);
+      }
+    }
+
+    // Limit important messages to ensure some compression happens
+    // Keep at most 50% of older messages as important
+    const maxImportant = Math.max(5, Math.floor(messages.length * 0.5));
+    if (importantMessages.length > maxImportant) {
+      importantMessages.splice(maxImportant); // Keep only the first maxImportant messages
+    }
+
+    return importantMessages;
+  }
+
+  /**
+   * Generate a summary of older conversation messages
+   * @param {Array} messages - Array of message objects to summarize
+   * @returns {Promise<string>} Conversation summary
+   */
+  async generateConversationSummary(messages) {
+    try {
+      // Extract key topics and themes from the conversation
+      const fullConversationText = messages
+        .map((msg) => `${msg.role}: ${msg.content}`)
+        .join('\n');
+
+      // Truncate to prevent AI token limits (keep last 10000 chars for recent context)
+      const conversationText =
+        fullConversationText.length > 10000
+          ? fullConversationText.substring(fullConversationText.length - 10000)
+          : fullConversationText;
+
+      console.log(
+        `📝 [ChatService] Generating summary for ${messages.length} messages`,
+      );
+      console.log(
+        `📝 [ChatService] Conversation text length: ${conversationText.length} chars`,
+      );
+      console.log(
+        `📝 [ChatService] Conversation text preview: ${conversationText.substring(
+          0,
+          200,
+        )}...`,
+      );
+
+      const client = huggingFaceClient.getInstance();
+
+      const summaryMessages = [
+        {
+          role: 'system',
+          content: `You are a conversation summarizer. Your task is to create a concise summary of the provided conversation about Kathakali culture. Focus on key topics discussed, questions asked, and important information shared. Keep the summary under 200 words and make it suitable for providing context to continue the conversation naturally.
+
+IMPORTANT: Respond with valid JSON in this exact format:
+{
+  "summary": "Your concise summary text here"
+}`,
+        },
+        {
+          role: 'user',
+          content: `Please summarize this conversation history and respond with JSON:\n\n${conversationText}`,
+        },
+      ];
+
+      const chatCompletion = await client.chatCompletion({
+        provider: 'together',
+        model: 'openai/gpt-oss-120b',
+        messages: summaryMessages,
+        max_tokens: 450, // Increased from 150 to allow complete JSON responses
+        temperature: 0.3, // More focused summary
+      });
+
+      const rawResponse =
+        chatCompletion.choices[0]?.message?.content?.trim() || '';
+
+      console.log(
+        `📝 [ChatService] Raw AI response: ${rawResponse.substring(0, 200)}...`,
+      );
+
+      // Parse JSON response
+      let summary = '';
+      try {
+        const jsonResponse = JSON.parse(rawResponse);
+        summary = jsonResponse.summary?.trim() || '';
+
+        console.log(`📝 [ChatService] Successfully parsed JSON summary`);
+      } catch (parseError) {
+        console.warn(
+          `📝 [ChatService] Failed to parse JSON response: ${parseError.message}`,
+        );
+        console.warn(`📝 [ChatService] Raw response was: ${rawResponse}`);
+
+        // Try to extract summary from raw response as fallback
+        const summaryMatch = rawResponse.match(/"summary"\s*:\s*"([^"]+)"/);
+        if (summaryMatch) {
+          summary = summaryMatch[1].trim();
+          console.log(
+            `📝 [ChatService] Extracted summary from raw JSON string`,
+          );
+        } else {
+          console.warn(
+            `📝 [ChatService] Could not extract summary, using fallback`,
+          );
+        }
+      }
+
+      console.log(
+        `📝 [ChatService] Generated summary length: ${summary.length} chars`,
+      );
+      console.log(
+        `📝 [ChatService] Summary preview: ${summary.substring(0, 100)}...`,
+      );
+
+      if (!summary || summary.length < 10) {
+        console.warn('📝 [ChatService] Summary too short, using fallback');
+        return `📝 Previous Conversation Summary:\nThis conversation covered various topics related to Kathakali culture, including discussions about characters, performances, and traditional elements.\n\n--- End of Summary ---\n\nContinuing the conversation...`;
+      }
+
+      return `📝 Previous Conversation Summary:\n${summary}\n\n--- End of Summary ---\n\nContinuing the conversation...`;
+    } catch (error) {
+      console.error(
+        '❌ [ChatService] Error generating conversation summary:',
+        error,
+      );
+      // Fallback summary
+      return `📝 Previous Conversation Summary:\nThis conversation covered various topics related to Kathakali culture, including discussions about characters, performances, and traditional elements.\n\n--- End of Summary ---\n\nContinuing the conversation...`;
+    }
+  }
+
+  /**
+   * Trigger asynchronous conversation compression if needed
+   * @param {string} sessionId - Session identifier
+   */
+  async triggerConversationCompression(sessionId) {
+    // Run compression asynchronously to not block the chat response
+    setImmediate(async () => {
+      try {
+        const needsCompression =
+          await this.shouldCompressConversation(sessionId);
+
+        if (needsCompression) {
+          await this.compressConversationHistory(sessionId);
+        }
+      } catch (error) {
+        console.error(
+          '❌ [ChatService] Error in conversation compression trigger:',
+          error,
+        );
+      }
+    });
   }
 }
 
