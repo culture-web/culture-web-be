@@ -406,12 +406,21 @@ Return [] only if message is completely unrelated to Kathakali.`;
       `📊 [ProficiencyAssessment] Level numbers - Current: ${currentLevel}, New: ${newLevel}`,
     );
 
-    // Apply sticky progress logic
+    // Apply sticky progress logic with misconception blocking
     if (newLevel < currentLevel && !analysisResult.misconceptionFlag) {
       console.log(
         `🛡️ [ProficiencyAssessment] Sticky progress: preventing downgrade from ${currentState.bloomLevel} to ${analysisResult.newLevel}`,
       );
       return false;
+    }
+
+    // If misconception detected, prevent level upgrades but allow flag updates
+    if (analysisResult.misconceptionFlag && newLevel > currentLevel) {
+      console.log(
+        `🚫 [ProficiencyAssessment] Misconception detected: blocking level upgrade from ${currentState.bloomLevel} to ${analysisResult.newLevel}`,
+      );
+      // Still allow misconception flag update without level change
+      return newLevel === currentLevel;
     }
 
     const shouldUpdate =
