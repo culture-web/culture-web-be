@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "check:dev": "node scripts/checkDevSupabase.cjs",
+    "start": "node server.js",
     "test": "jest",
     "lint": "eslint .",
     "format": "prettier --write .",

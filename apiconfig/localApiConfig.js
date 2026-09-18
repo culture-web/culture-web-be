@@ -1,5 +1,5 @@
 module.exports = {
-  kathakaliCharacterClassificationApi: 'http://localhost:5000/classify',
-  facialDetectionApi: 'http://localhost:5001/detect',
-  expressionDetectionApi: 'http://localhost:5000/expression',
+  kathakaliCharacterClassificationApi: 'http://localhost:5001/classify',
+  facialDetectionApi: 'http://localhost:5002/detect',
+  expressionDetectionApi: 'http://localhost:5003/expression',
 };

@@ -4,3 +4,4 @@
 !.env.example
 uploads/*
 uploads
+.idea
