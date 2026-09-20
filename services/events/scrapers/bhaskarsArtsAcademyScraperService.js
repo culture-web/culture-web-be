@@ -61,7 +61,13 @@ class BhaskarsArtsAcademyScraperService {
       const location = await this.extractVenueFromText(description);
       // If date/time not found, use chrono to parse free-text dates from description
       if (!startTime && description) {
-        const chronoResults = chrono.parse(description);
+        const chronoResults = chrono.parse(description).filter((result) => {
+          const values = result.start.knownValues;
+
+          return (
+            /\d/.test(result.text) && values.year && values.month && values.day
+          );
+        });
         if (chronoResults && chronoResults.length > 0) {
           // Use the first parsed date
           const parsed = chronoResults[0];
