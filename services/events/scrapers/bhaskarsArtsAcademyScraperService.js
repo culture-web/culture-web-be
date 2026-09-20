@@ -64,7 +64,9 @@ class BhaskarsArtsAcademyScraperService {
         const chronoResults = chrono.parse(description).filter((result) => {
           const values = result.start.knownValues;
 
-          return /\d/.test(result.text) && values.year && values.month && values.day;
+          return (
+            /\d/.test(result.text) && values.year && values.month && values.day
+          );
         });
         if (chronoResults && chronoResults.length > 0) {
           // Use the first parsed date
