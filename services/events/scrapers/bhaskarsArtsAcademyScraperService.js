@@ -282,56 +282,65 @@ class BhaskarsArtsAcademyScraperService {
 
   async scrapeEventListingPage() {
     try {
-      console.log('Scraping events listing page...');
-      const listingUrl = `${this.baseUrl}/events/past`;
+      console.log('Scraping events listing pages...');
+      const listingPaths = ['/events/past', '/events/upcoming'];
+      const eventsByPage = await Promise.all(
+        listingPaths.map(async (listingPath) => {
+          const listingUrl = `${this.baseUrl}${listingPath}`;
 
-      const response = await axios.get(listingUrl, {
-        timeout: 10000,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        },
-      });
-
-      const $ = cheerio.load(response.data);
-      const events = [];
-
-      // Find all event containers with class="col-md-4 col-sm-6"
-      $('.col-md-4.col-sm-6').each((i, elem) => {
-        const $elem = $(elem);
-
-        // Find the Details link
-        const detailsLink = $elem
-          .find('a[href*="/event/details.cfm"]')
-          .attr('href');
-
-        // Extract date from the course-top-part div
-        const dateText = $elem.find('.course-top-part').text().trim();
-
-        // Extract just the date part (e.g., "11 Oct 2025")
-        // The format is usually "Event Title\n11 Oct 2025"
-        const dateMatch = dateText.match(/(\d{1,2}\s+[A-Za-z]+\s+\d{4})/);
-
-        if (detailsLink && dateMatch) {
-          const fullUrl = detailsLink.startsWith('http')
-            ? detailsLink
-            : `${this.baseUrl}${detailsLink}`;
-
-          const dateString = dateMatch[1].trim();
-
-          events.push({
-            url: fullUrl,
-            date: dateString,
+          const response = await axios.get(listingUrl, {
+            timeout: 10000,
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            },
           });
-        }
-      });
+
+          const $ = cheerio.load(response.data);
+          const events = [];
+
+          // Find all event containers with class="col-md-4 col-sm-6"
+          $('.col-md-4.col-sm-6').each((i, elem) => {
+            const $elem = $(elem);
+
+            // Find the Details link
+            const detailsLink = $elem
+              .find('a[href*="/event/details.cfm"]')
+              .attr('href');
+
+            // Extract date from the course-top-part div
+            const dateText = $elem.find('.course-top-part').text().trim();
+
+            // Extract just the date part (e.g., "11 Oct 2025")
+            // The format is usually "Event Title\n11 Oct 2025"
+            const dateMatch = dateText.match(/(\d{1,2}\s+[A-Za-z]+\s+\d{4})/);
+
+            if (detailsLink && dateMatch) {
+              const fullUrl = detailsLink.startsWith('http')
+                ? detailsLink
+                : `${this.baseUrl}${detailsLink}`;
+
+              const dateString = dateMatch[1].trim();
+
+              events.push({
+                url: fullUrl,
+                date: dateString,
+              });
+            }
+          });
+
+          return events;
+        }),
+      );
+
+      const events = eventsByPage.flat();
 
       const uniqueEvents = events.filter(
         (event, index, self) =>
           index === self.findIndex((e) => e.url === event.url),
       );
 
-      console.log(`Found ${uniqueEvents.length} event(s) on listing page`);
+      console.log(`Found ${uniqueEvents.length} event(s) across listing pages`);
       return uniqueEvents;
     } catch (error) {
       console.error('Error scraping event listing page:', error.message);
