@@ -874,6 +874,26 @@ Please use this information to answer the user's question accurately. If the use
 
     const chatbotResponse = preprocessChatResponse(responseMessage);
 
+    if (req.user?.id) {
+      setImmediate(() => {
+        const proficiencyService = new ProficiencyAssessmentService();
+        proficiencyService
+          .assessUserProficiency(req.user.id, message)
+          .then((updates) => {
+            if (updates && updates.length > 0) {
+              return proficiencyService.applyProficiencyUpdates(
+                req.user.id,
+                updates,
+              );
+            }
+            return null;
+          })
+          .catch((err) => {
+            console.error('[chat] Proficiency assessment error:', err);
+          });
+      });
+    }
+
     return res.status(200).json(chatbotResponse);
   } catch (error) {
     console.log('Error in chat:', error);
@@ -1481,6 +1501,26 @@ exports.chatMudras = async (req, res) => {
     chatbotResponse.citations = citations;
     chatbotResponse.retrieval = retrievalDebug;
     chatbotResponse.assetMatches = mudraAssetMatches;
+
+    if (req.user?.id) {
+      setImmediate(() => {
+        const proficiencyService = new ProficiencyAssessmentService();
+        proficiencyService
+          .assessUserProficiency(req.user.id, message, ownedSessionId)
+          .then((updates) => {
+            if (updates && updates.length > 0) {
+              return proficiencyService.applyProficiencyUpdates(
+                req.user.id,
+                updates,
+              );
+            }
+            return null;
+          })
+          .catch((err) => {
+            console.error('[chat-mudras] Proficiency assessment error:', err);
+          });
+      });
+    }
 
     return res.status(200).json(chatbotResponse);
   } catch (error) {

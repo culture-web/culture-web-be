@@ -31,7 +31,12 @@ router.post(
   kathakaliController.classifyExpression, // Classify only expressions
 );
 
-router.post('/chat', multerUploadErrorMiddleware, kathakaliController.chat);
+router.post(
+  '/chat',
+  optionalAuth,
+  multerUploadErrorMiddleware,
+  kathakaliController.chat,
+);
 
 router.post(
   '/chat-mudras',

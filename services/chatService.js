@@ -53,6 +53,23 @@ class ChatService {
 
     // If it's a user message, generate AI response automatically
     if (role === 'user') {
+      // Asynchronously assess user proficiency immediately without waiting for AI response
+      if (userId) {
+        console.log(
+          '🎓 [ChatService] Scheduling asynchronous proficiency assessment...',
+        );
+        setImmediate(() => {
+          this.updateUserProficiency(userId, message, sessionId).catch(
+            (proficiencyError) => {
+              console.error(
+                '❌ [ChatService] Proficiency assessment failed:',
+                proficiencyError,
+              );
+            },
+          );
+        });
+      }
+
       console.log(
         '🤖 [ChatService] User message detected - generating AI response',
       );
@@ -106,24 +123,6 @@ class ChatService {
         console.log(
           `✅ [ChatService] AI response stored with ID: ${aiData.id}`,
         );
-
-        // Truly asynchronous proficiency assessment (runs in next event loop tick)
-        if (userId) {
-          console.log(
-            '🎓 [ChatService] Scheduling asynchronous proficiency assessment...',
-          );
-          setImmediate(() => {
-            this.updateUserProficiency(userId, message, sessionId).catch(
-              (proficiencyError) => {
-                console.error(
-                  '❌ [ChatService] Proficiency assessment failed:',
-                  proficiencyError,
-                );
-                // Don't block the chat response if proficiency assessment fails
-              },
-            );
-          });
-        }
 
         // Trigger conversation compression asynchronously if needed
         this.triggerConversationCompression(sessionId);
@@ -210,10 +209,10 @@ class ChatService {
           );
         }
 
-        // Then get recent non-summary messages for additional context
+        // Then get recent non-summary messages for additional context (limited to stay within TPM limits)
         const recentMessages = await this.getRecentNonSummaryMessages(
           sessionId,
-          8, // Reduced from 10 to leave room for summary
+          4,
         );
 
         if (recentMessages && recentMessages.length > 0) {
@@ -222,10 +221,14 @@ class ChatService {
             (a, b) => new Date(a.created_at) - new Date(b.created_at),
           );
 
-          // Format message history
+          // Format message history with truncated line length to prevent token overflow
           const historyLines = sortedMessages.map((msg) => {
             const timestamp = new Date(msg.created_at).toLocaleString();
-            return `[${timestamp}] ${msg.role}: ${msg.content}`;
+            const text =
+              (msg.content || '').length > 350
+                ? `${(msg.content || '').substring(0, 350)}...`
+                : msg.content;
+            return `[${timestamp}] ${msg.role}: ${text}`;
           });
 
           messageHistoryContext = `\n\nRecent conversation history:\n${historyLines.join('\n')}`;
