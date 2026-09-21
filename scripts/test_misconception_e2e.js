@@ -25,9 +25,11 @@ function callController(fn, req) {
           const err = new Error(`HTTP ${statusCode}: ${JSON.stringify(data)}`);
           err.statusCode = statusCode;
           err.data = data;
-          return reject(err);
+          reject(err);
+          return null;
         }
         resolve({ statusCode, data });
+        return null;
       },
     };
     Promise.resolve(fn(req, res)).catch(reject);
@@ -115,14 +117,14 @@ async function runE2ETest() {
   console.log(
     '\n--- STEP 4: Submitting 3 Consecutive Correct Answers to Clear Misconception ---',
   );
-  let currentQuestion = question;
 
-  for (let i = 1; i <= 3; i++) {
-    const qBackendId = currentQuestion.backendQuestionId;
-    console.log(`\nAnswering Question ${i}/3... (Question ID: ${qBackendId})`);
-    console.log(`Question prompt: "${currentQuestion.question}"`);
+  async function submitStepAnswer(currentQ, stepIndex) {
+    const qBackendId = currentQ.backendQuestionId;
+    console.log(
+      `\nAnswering Question ${stepIndex}/3... (Question ID: ${qBackendId})`,
+    );
+    console.log(`Question prompt: "${currentQ.question}"`);
 
-    // Look up question row in DB to find correct answer
     const { data: qRow, error: qErr } = await supabase
       .from('quiz_question')
       .select('id, correct_answer')
@@ -149,7 +151,7 @@ async function runE2ETest() {
     );
 
     console.log(
-      `Question ${i} Answered correctly: ${answerData.result.correct}`,
+      `Question ${stepIndex} Answered correctly: ${answerData.result.correct}`,
     );
     console.log(
       `Current streak: ${answerData.progress.currentStreak}/${answerData.progress.masteryStreak}`,
@@ -159,8 +161,12 @@ async function runE2ETest() {
       answerData.proficiencyUpdatesApplied,
     );
 
-    currentQuestion = answerData.nextQuestion;
+    return answerData.nextQuestion;
   }
+
+  const q2 = await submitStepAnswer(question, 1);
+  const q3 = await submitStepAnswer(q2, 2);
+  await submitStepAnswer(q3, 3);
 
   // STEP 5: Verify that adbhuta is mastered and misconception_flag is CLEARED in Supabase
   console.log(
