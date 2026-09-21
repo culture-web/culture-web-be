@@ -470,7 +470,7 @@ class ChatService {
       `🆕 [ChatService] Creating new session for userId: ${userId || 'UNAUTHENTICATED'}`,
     );
 
-    // Check if user already has an active "New Conversation" session
+    // Check if user already has an active empty "New Conversation" session
     try {
       const { data: existingSession, error: checkError } = await supabase
         .from('sessions')
@@ -482,10 +482,22 @@ class ChatService {
         .single();
 
       if (!checkError && existingSession) {
+        // Only reuse if this session has NO messages yet (genuinely empty session)
+        const { count, error: countError } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('session_id', existingSession.id);
+
+        if (!countError && count === 0) {
+          console.log(
+            `♻️ [ChatService] Reusing empty "New Conversation" session: ${existingSession.id}`,
+          );
+          return existingSession;
+        }
+
         console.log(
-          `♻️ [ChatService] Reusing existing "New Conversation" session: ${existingSession.id}`,
+          `🆕 [ChatService] Existing "New Conversation" session ${existingSession.id} has ${count} messages, creating a new session instead`,
         );
-        return existingSession;
       }
     } catch (checkError) {
       // Continue with creation if check fails (not a critical error)
