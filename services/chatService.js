@@ -1,5 +1,5 @@
 const supabase = require('../client/supabaseClient');
-const huggingFaceClient = require('../client/huggingfaceClient');
+const groqClient = require('../client/groqClient');
 const queryCategorizationService = require('./queryCategorizationService');
 const ornamentsService = require('./ornamentsService');
 const musicService = require('./musicService');
@@ -175,7 +175,7 @@ class ChatService {
       throw new Error('Query is required');
     }
 
-    const client = huggingFaceClient.getInstance();
+    const client = groqClient.getInstance();
 
     const messages = [
       {
@@ -450,9 +450,8 @@ class ChatService {
       }
     }
 
-    const chatCompletion = await client.chatCompletion({
-      provider: 'together',
-      model: 'openai/gpt-oss-120b',
+    const chatCompletion = await client.chat.completions.create({
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
       messages: messages,
     });
 
@@ -524,7 +523,7 @@ class ChatService {
       throw new Error('User message is required for session summary');
     }
 
-    const client = huggingFaceClient.getInstance();
+    const client = groqClient.getInstance();
 
     const messages = [
       {
@@ -539,9 +538,8 @@ class ChatService {
     ];
 
     try {
-      const chatCompletion = await client.chatCompletion({
-        provider: 'together',
-        model: 'openai/gpt-oss-120b',
+      const chatCompletion = await client.chat.completions.create({
+        model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
         messages: messages,
       });
 
@@ -1389,7 +1387,7 @@ Event ${index + 1}:
         )}...`,
       );
 
-      const client = huggingFaceClient.getInstance();
+      const client = groqClient.getInstance();
 
       const summaryMessages = [
         {
@@ -1407,9 +1405,8 @@ IMPORTANT: Respond with valid JSON in this exact format:
         },
       ];
 
-      const chatCompletion = await client.chatCompletion({
-        provider: 'together',
-        model: 'openai/gpt-oss-120b',
+      const chatCompletion = await client.chat.completions.create({
+        model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
         messages: summaryMessages,
         max_tokens: 450, // Increased from 150 to allow complete JSON responses
         temperature: 0.3, // More focused summary

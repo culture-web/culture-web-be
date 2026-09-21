@@ -1,7 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const chrono = require('chrono-node');
-const huggingFaceClient = require('../../../client/huggingfaceClient');
+const groqClient = require('../../../client/groqClient');
 /**
  * Scraper for Bhaskar's Arts Academy website
  * Implements a standard scraper interface that can be extended to other sources
@@ -187,9 +187,8 @@ class BhaskarsArtsAcademyScraperService {
       .replace(/&quot;/g, '"');
 
     try {
-      const client = huggingFaceClient.getInstance();
-      const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
-      const provider = process.env.HF_CHAT_PROVIDER || 'together';
+      const client = groqClient.getInstance();
+      const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
       const prompt = `Analyze the following text and extract the full name of the place that the event will be held at, only if available. Return the result as a JSON object with the key "full_address". If no address is present, return an empty JSON object {}.\n\nText:\n${decoded}`;
 
@@ -207,8 +206,7 @@ class BhaskarsArtsAcademyScraperService {
         { role: 'user', content: prompt },
       ];
 
-      const chatCompletion = await client.chatCompletion({
-        provider,
+      const chatCompletion = await client.chat.completions.create({
         model,
         messages,
       });

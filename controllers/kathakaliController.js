@@ -1,7 +1,6 @@
 /* eslint-disable node/no-unsupported-features/es-syntax */
 const axios = require('axios');
 const FormData = require('form-data');
-const huggingFaceClient = require('../client/huggingfaceClient');
 const groqClient = require('../client/groqClient');
 const supabase = require('../client/supabaseClient');
 const localDb = require('../client/localDbClient');
@@ -641,7 +640,7 @@ exports.chat = async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    const client = huggingFaceClient.getInstance();
+    const client = groqClient.getInstance();
 
     const messages = [
       {
@@ -836,11 +835,11 @@ Please use this information to answer the user's question accurately. If the use
       }
     }
 
-    const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
-    const provider = process.env.HF_CHAT_PROVIDER || 'together';
+    const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+    const provider = 'Groq';
     const llmStartedAt = Date.now();
     llmAuditContext = {
-      label: 'HF Chat',
+      label: 'Groq Chat',
       provider,
       model,
       messages,
@@ -851,14 +850,13 @@ Please use this information to answer the user's question accurately. If the use
     };
 
     logLlmRequestPayload({
-      label: 'HF Chat',
+      label: 'Groq Chat',
       provider,
       model,
       messages,
     });
 
-    const chatCompletion = await client.chatCompletion({
-      provider,
+    const chatCompletion = await client.chat.completions.create({
       model,
       messages: messages,
     });

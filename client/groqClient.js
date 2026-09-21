@@ -1,4 +1,4 @@
-const Groq = require('groq-sdk');
+const { Groq } = require('groq-sdk');
 
 class GroqClientSingleton {
   constructor() {

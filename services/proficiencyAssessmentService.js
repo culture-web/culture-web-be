@@ -1,5 +1,5 @@
 const supabase = require('../client/supabaseClient');
-const huggingFaceClient = require('../client/huggingfaceClient');
+const groqClient = require('../client/groqClient');
 const CurriculumService = require('./curriculumService');
 
 /**
@@ -14,12 +14,12 @@ class ProficiencyAssessmentService {
   }
 
   /**
-   * Get the HuggingFace client, initializing it if needed
-   * @returns {Object} HuggingFace client instance
+   * Get the Groq client, initializing it if needed
+   * @returns {Object} Groq client instance
    */
   getClient() {
     if (!this.client) {
-      this.client = huggingFaceClient.getInstance();
+      this.client = groqClient.getInstance();
     }
     return this.client;
   }
@@ -166,9 +166,8 @@ class ProficiencyAssessmentService {
         `🤖 [ProficiencyAssessment] Analyzing message against full curriculum`,
       );
 
-      const response = await this.getClient().chatCompletion({
-        provider: 'together',
-        model: 'openai/gpt-oss-120b',
+      const response = await this.getClient().chat.completions.create({
+        model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
         messages: messages,
         temperature: 0.1, // Low temperature for consistent analysis
       });
@@ -230,14 +229,17 @@ ${curriculumContext}
 
 LEVELS: 0_unseen, 1_remember, 2_understand, 3_apply, 4_analyze
 
-TASK: Analyze if the user message shows knowledge of any concept above. Be generous - if they mention or ask about a concept, assess their level.
+TASK: Analyze if the user message shows knowledge of any concept above, OR if it exhibits a factual misconception or confusion.
+- If the user demonstrates accurate knowledge or asks about a concept, assess their Bloom level and set "misconception_flag": false.
+- If the user expresses a factual misunderstanding or confuses concepts (e.g., claiming Adbhuta is fear/disgust instead of wonder, or claiming Paccha characters are evil), set "misconception_flag": true and explain the error in "reasoning".
 
 EXAMPLES:
-- User asks "What is paccha?" → paccha_characters: 1_remember (they're learning about it)
-- User says "Paccha characters are noble heroes" → paccha_characters: 2_understand
+- User asks "What is paccha?" → paccha_characters: 1_remember, misconception_flag: false (they're learning about it)
+- User says "Paccha characters are noble heroes" → paccha_characters: 2_understand, misconception_flag: false
+- User says "Adbhuta is the rasa of fear and disgust" → adbhuta: 1_remember, misconception_flag: true (Adbhuta represents wonder/amazement, not fear or disgust)
 - User discusses character relationships → higher levels
 
-OUTPUT JSON ARRAY (be generous, not overly conservative):
+OUTPUT JSON ARRAY:
 [
   {
     "concept_id": "conceptId", 
@@ -343,8 +345,17 @@ Return [] only if message is completely unrelated to Kathakali.`;
           currentState,
         );
 
+        const currentLevelNum = this.bloomLevelToNumber(
+          currentState.bloomLevel,
+        );
+        const proposedLevelNum = this.bloomLevelToNumber(assessment.new_level);
+        const effectiveNewLevel =
+          assessment.misconception_flag && proposedLevelNum > currentLevelNum
+            ? currentState.bloomLevel
+            : assessment.new_level;
+
         const shouldUpdate = this.shouldUpdateProficiency(currentState, {
-          newLevel: assessment.new_level,
+          newLevel: effectiveNewLevel,
           misconceptionFlag: assessment.misconception_flag,
           confidence: assessment.confidence,
         });
@@ -356,7 +367,7 @@ Return [] only if message is completely unrelated to Kathakali.`;
         if (shouldUpdate) {
           proficiencyUpdates.push({
             conceptId: assessment.concept_id,
-            newLevel: assessment.new_level,
+            newLevel: effectiveNewLevel,
             misconceptionFlag: assessment.misconception_flag || false,
             evidence: assessment.evidence || originalMessage.substring(0, 500),
             reasoning: assessment.reasoning || 'AI assessment',
@@ -414,13 +425,12 @@ Return [] only if message is completely unrelated to Kathakali.`;
       return false;
     }
 
-    // If misconception detected, prevent level upgrades but allow flag updates
+    // If misconception detected, prevent level upgrades
     if (analysisResult.misconceptionFlag && newLevel > currentLevel) {
       console.log(
         `🚫 [ProficiencyAssessment] Misconception detected: blocking level upgrade from ${currentState.bloomLevel} to ${analysisResult.newLevel}`,
       );
-      // Still allow misconception flag update without level change
-      return newLevel === currentLevel;
+      return false;
     }
 
     const shouldUpdate =
@@ -631,7 +641,10 @@ Return [] only if message is completely unrelated to Kathakali.`;
                 {
                   user_id: userId,
                   node_id: update.conceptId,
-                  bloom_level: update.newLevel,
+                  bloom_level:
+                    existingState && currentLevel > newLevel
+                      ? existingState.bloom_level
+                      : update.newLevel,
                   misconception_flag:
                     update.misconceptionFlag ||
                     existingState?.misconception_flag ||

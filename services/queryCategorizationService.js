@@ -1,5 +1,5 @@
 /* eslint-disable no-param-reassign */
-const huggingFaceClient = require('../client/huggingfaceClient');
+const groqClient = require('../client/groqClient');
 
 /**
  * Query Categorization Service
@@ -22,13 +22,11 @@ class QueryCategorizationService {
   async categorizeQuery(query) {
     try {
       console.log('Query categorization: Analyzing query with LLM...');
-      const client = huggingFaceClient.getInstance();
+      const client = groqClient.getInstance();
 
-      const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
-      const provider = process.env.HF_CHAT_PROVIDER || 'together';
+      const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
-      const response = await client.chatCompletion({
-        provider,
+      const response = await client.chat.completions.create({
         model,
         messages: [
           {
