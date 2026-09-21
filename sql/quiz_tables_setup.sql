@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS quiz_session (
   user_id VARCHAR(255) NOT NULL,
   source TEXT NOT NULL DEFAULT 'adaptive',
   selected_concepts JSONB,
+  policy_version TEXT,
+  session_state JSONB,
+  status TEXT NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   submitted_at TIMESTAMPTZ
 );
@@ -28,11 +31,31 @@ CREATE TABLE IF NOT EXISTS quiz_question (
   correct_answer TEXT NOT NULL,
   explanation TEXT,
   distractor_map JSONB,
+  sequence_no INT,
+  selected_answer TEXT,
+  is_correct BOOLEAN,
+  response_ms INT,
+  answered_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_quiz_question_quiz_id ON quiz_question(quiz_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_question_concept_id ON quiz_question(concept_id);
+
+-- Upgrade existing installations without requiring table recreation.
+ALTER TABLE quiz_session ADD COLUMN IF NOT EXISTS policy_version TEXT;
+ALTER TABLE quiz_session ADD COLUMN IF NOT EXISTS session_state JSONB;
+ALTER TABLE quiz_session ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS sequence_no INT;
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS selected_answer TEXT;
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS is_correct BOOLEAN;
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS response_ms INT;
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS answered_at TIMESTAMPTZ;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_question_sequence
+  ON quiz_question(quiz_id, sequence_no)
+  WHERE sequence_no IS NOT NULL;
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE quiz_session ENABLE ROW LEVEL SECURITY;

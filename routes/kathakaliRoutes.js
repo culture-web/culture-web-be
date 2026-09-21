@@ -88,6 +88,24 @@ router.get(
 );
 
 router.post(
+  '/generate-adaptive-quiz',
+  authenticateToken,
+  kathakaliController.startAdaptiveQuiz,
+);
+
+router.post(
+  '/quiz/:quizId/answer',
+  authenticateToken,
+  kathakaliController.answerAdaptiveQuizQuestion,
+);
+
+router.get(
+  '/quiz/:quizId/current',
+  authenticateToken,
+  kathakaliController.getAdaptiveQuizCurrent,
+);
+
+router.post(
   '/quiz/:quizId/submit',
   authenticateToken,
   kathakaliController.submitQuiz,
