@@ -34,6 +34,29 @@ const {
 const MULTI_TURN_MAX_PREVIOUS_TURNS = 2;
 const MULTI_TURN_HISTORY_MESSAGE_LIMIT = MULTI_TURN_MAX_PREVIOUS_TURNS * 2;
 
+const triggerBackgroundProficiencyAssessment = (
+  userId,
+  message,
+  sessionId = null,
+  logContext = 'chat',
+) => {
+  if (!userId) return;
+  setImmediate(() => {
+    const proficiencyService = new ProficiencyAssessmentService();
+    proficiencyService
+      .assessUserProficiency(userId, message, sessionId)
+      .then((updates) => {
+        if (updates && updates.length > 0) {
+          return proficiencyService.applyProficiencyUpdates(userId, updates);
+        }
+        return null;
+      })
+      .catch((err) => {
+        console.error(`[${logContext}] Proficiency assessment error:`, err);
+      });
+  });
+};
+
 const getLlmLogPreviewChars = () =>
   clampNumber(process.env.LLM_LOG_PROMPT_PREVIEW_CHARS, 100, 5000, 1200);
 
@@ -874,25 +897,7 @@ Please use this information to answer the user's question accurately. If the use
 
     const chatbotResponse = preprocessChatResponse(responseMessage);
 
-    if (req.user?.id) {
-      setImmediate(() => {
-        const proficiencyService = new ProficiencyAssessmentService();
-        proficiencyService
-          .assessUserProficiency(req.user.id, message)
-          .then((updates) => {
-            if (updates && updates.length > 0) {
-              return proficiencyService.applyProficiencyUpdates(
-                req.user.id,
-                updates,
-              );
-            }
-            return null;
-          })
-          .catch((err) => {
-            console.error('[chat] Proficiency assessment error:', err);
-          });
-      });
-    }
+    triggerBackgroundProficiencyAssessment(req.user?.id, message, null, 'chat');
 
     return res.status(200).json(chatbotResponse);
   } catch (error) {
@@ -1502,25 +1507,12 @@ exports.chatMudras = async (req, res) => {
     chatbotResponse.retrieval = retrievalDebug;
     chatbotResponse.assetMatches = mudraAssetMatches;
 
-    if (req.user?.id) {
-      setImmediate(() => {
-        const proficiencyService = new ProficiencyAssessmentService();
-        proficiencyService
-          .assessUserProficiency(req.user.id, message, ownedSessionId)
-          .then((updates) => {
-            if (updates && updates.length > 0) {
-              return proficiencyService.applyProficiencyUpdates(
-                req.user.id,
-                updates,
-              );
-            }
-            return null;
-          })
-          .catch((err) => {
-            console.error('[chat-mudras] Proficiency assessment error:', err);
-          });
-      });
-    }
+    triggerBackgroundProficiencyAssessment(
+      req.user?.id,
+      message,
+      ownedSessionId,
+      'chat-mudras',
+    );
 
     return res.status(200).json(chatbotResponse);
   } catch (error) {
@@ -2332,6 +2324,39 @@ exports.startAdaptiveQuiz = async (req, res) => {
   }
 };
 
+const getOwnedQuizSession = async (
+  quizId,
+  userId,
+  selectFields = 'id, user_id, status, session_state, submitted_at',
+) => {
+  const { data: session, error: sessionError } = await supabase
+    .from('quiz_session')
+    .select(selectFields)
+    .eq('id', quizId)
+    .single();
+
+  if (sessionError || !session) {
+    return { errorStatus: 404, errorMessage: 'Quiz session not found' };
+  }
+  if (String(session.user_id) !== String(userId)) {
+    return { errorStatus: 403, errorMessage: 'Forbidden' };
+  }
+  return { session };
+};
+
+const validateAnswerableQuestion = (question, answer) => {
+  if (!question) {
+    return { errorStatus: 404, errorMessage: 'Quiz question not found' };
+  }
+  if (question.answered_at) {
+    return { errorStatus: 409, errorMessage: 'Question was already answered' };
+  }
+  if (!Array.isArray(question.options) || !question.options.includes(answer)) {
+    return { errorStatus: 400, errorMessage: 'Answer must match an option' };
+  }
+  return null;
+};
+
 /**
  * Grade one answer, update session evidence, and select the next question.
  * POST /api/kathakali/quiz/:quizId/answer
@@ -2348,17 +2373,12 @@ exports.answerAdaptiveQuizQuestion = async (req, res) => {
         .json({ error: 'questionId and a non-empty answer are required' });
     }
 
-    const { data: session, error: sessionError } = await supabase
-      .from('quiz_session')
-      .select('id, user_id, status, session_state, submitted_at')
-      .eq('id', quizId)
-      .single();
-
-    if (sessionError || !session) {
-      return res.status(404).json({ error: 'Quiz session not found' });
-    }
-    if (String(session.user_id) !== String(userId)) {
-      return res.status(403).json({ error: 'Forbidden' });
+    const { session, errorStatus, errorMessage } = await getOwnedQuizSession(
+      quizId,
+      userId,
+    );
+    if (errorStatus) {
+      return res.status(errorStatus).json({ error: errorMessage });
     }
     if (session.status === 'completed') {
       return res.status(409).json({
@@ -2374,17 +2394,14 @@ exports.answerAdaptiveQuizQuestion = async (req, res) => {
       .eq('quiz_id', quizId)
       .single();
 
-    if (questionError || !question) {
+    if (questionError) {
       return res.status(404).json({ error: 'Quiz question not found' });
     }
-    if (question.answered_at) {
-      return res.status(409).json({ error: 'Question was already answered' });
-    }
-    if (
-      !Array.isArray(question.options) ||
-      !question.options.includes(answer)
-    ) {
-      return res.status(400).json({ error: 'Answer must match an option' });
+    const questionValidation = validateAnswerableQuestion(question, answer);
+    if (questionValidation) {
+      return res
+        .status(questionValidation.errorStatus)
+        .json({ error: questionValidation.errorMessage });
     }
 
     const selectedAnswer = answer.trim();
@@ -2487,17 +2504,14 @@ exports.getAdaptiveQuizCurrent = async (req, res) => {
   try {
     const userId = req.user.id;
     const { quizId } = req.params;
-    const { data: session, error: sessionError } = await supabase
-      .from('quiz_session')
-      .select('id, user_id, status, session_state, policy_version')
-      .eq('id', quizId)
-      .single();
+    const { session, errorStatus, errorMessage } = await getOwnedQuizSession(
+      quizId,
+      userId,
+      'id, user_id, status, session_state, policy_version',
+    );
 
-    if (sessionError || !session) {
-      return res.status(404).json({ error: 'Quiz session not found' });
-    }
-    if (String(session.user_id) !== String(userId)) {
-      return res.status(403).json({ error: 'Forbidden' });
+    if (errorStatus) {
+      return res.status(errorStatus).json({ error: errorMessage });
     }
     if (session.status === 'completed') {
       return res.status(200).json({

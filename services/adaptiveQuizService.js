@@ -116,7 +116,10 @@ const getActiveConcept = (sessionState) => {
 };
 
 const recordAdaptiveAnswer = (sessionState, conceptId, isCorrect) => {
-  const nextState = JSON.parse(JSON.stringify(sessionState));
+  const nextState =
+    typeof structuredClone === 'function'
+      ? structuredClone(sessionState)
+      : JSON.parse(JSON.stringify(sessionState));
   const concept = nextState.concepts.find(
     (candidate) => candidate.conceptId === conceptId,
   );

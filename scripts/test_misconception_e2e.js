@@ -56,7 +56,7 @@ async function runE2ETest() {
   console.log(`Proficiency updates generated: ${updates.length}`);
 
   const adbhutaUpdate = updates.find((u) => u.conceptId === 'adbhuta');
-  if (!adbhutaUpdate || !adbhutaUpdate.misconceptionFlag) {
+  if (!adbhutaUpdate?.misconceptionFlag) {
     throw new Error('Expected adbhuta to be flagged with a misconception!');
   }
   console.log('✅ Adbhuta correctly identified with misconception_flag: true');

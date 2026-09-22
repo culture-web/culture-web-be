@@ -44,6 +44,7 @@ function parseUrl(value, label) {
     }
     return url;
   } catch (err) {
+    // Malformed URL or non-string inputs are treated as missing or invalid
     errors.push(`${label} is missing or invalid.`);
     return null;
   }
@@ -123,7 +124,9 @@ if (errors.length) {
   console.error(errors.join('\n'));
   process.exitCode = 1;
 } else {
-  console.log(`Development configuration matches: ${backend.hostname}`);
+  console.log(
+    'Development configuration matches shared hosted development profile.',
+  );
   console.log(
     'Offline check only; key validity, login and external KB services are not verified.',
   );
