@@ -18,6 +18,7 @@ const {
   ADMIN_NAMESPACE,
   setSocketServer,
 } = require('./services/realtimeService');
+const groqClient = require('./client/groqClient');
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -60,6 +61,22 @@ app.use(express.urlencoded({ extended: true }));
 // Add a simple route
 app.get('/api', (req, res) => {
   res.send('Hello, this is your Express backend!');
+});
+
+app.get('/api/health', (req, res) => {
+  let llmProvider = 'uninitialized';
+  let llmModel = 'default';
+  try {
+    llmProvider = groqClient.getProvider();
+    llmModel = groqClient.getModel();
+  } catch (err) {
+    llmProvider = `error: ${err.message}`;
+  }
+  return res.status(200).json({
+    status: 'ok',
+    llmProvider,
+    llmModel,
+  });
 });
 
 app.use('/api/kathakali', kathakaliRoutes);

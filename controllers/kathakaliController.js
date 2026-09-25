@@ -858,11 +858,12 @@ Please use this information to answer the user's question accurately. If the use
       }
     }
 
-    const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-    const provider = 'Groq';
+    const model = groqClient.getModel();
+    const provider =
+      groqClient.getProvider() === 'soclaas' ? 'SoC LaaS' : 'Groq';
     const llmStartedAt = Date.now();
     llmAuditContext = {
-      label: 'Groq Chat',
+      label: `${provider} Chat`,
       provider,
       model,
       messages,
@@ -873,7 +874,7 @@ Please use this information to answer the user's question accurately. If the use
     };
 
     logLlmRequestPayload({
-      label: 'Groq Chat',
+      label: `${provider} Chat`,
       provider,
       model,
       messages,

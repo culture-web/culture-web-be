@@ -68,6 +68,14 @@ describe('GET /api', () => {
     expect(response.text).toBe('Hello, this is your Express backend!');
   });
 
+  it('should return status code 200 and health info on GET /api/health', async () => {
+    const response = await request(app).get('/api/health');
+    expect(response.statusCode).toBe(200);
+    expect(response.body.status).toBe('ok');
+    expect(response.body).toHaveProperty('llmProvider');
+    expect(response.body).toHaveProperty('llmModel');
+  });
+
   afterAll(() => {
     app.close();
   });
