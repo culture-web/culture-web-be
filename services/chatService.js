@@ -1,5 +1,5 @@
 const supabase = require('../client/supabaseClient');
-const huggingFaceClient = require('../client/huggingfaceClient');
+const groqClient = require('../client/groqClient');
 const queryCategorizationService = require('./queryCategorizationService');
 const ornamentsService = require('./ornamentsService');
 const musicService = require('./musicService');
@@ -53,6 +53,23 @@ class ChatService {
 
     // If it's a user message, generate AI response automatically
     if (role === 'user') {
+      // Asynchronously assess user proficiency immediately without waiting for AI response
+      if (userId) {
+        console.log(
+          '🎓 [ChatService] Scheduling asynchronous proficiency assessment...',
+        );
+        setImmediate(() => {
+          this.updateUserProficiency(userId, message, sessionId).catch(
+            (proficiencyError) => {
+              console.error(
+                '❌ [ChatService] Proficiency assessment failed:',
+                proficiencyError,
+              );
+            },
+          );
+        });
+      }
+
       console.log(
         '🤖 [ChatService] User message detected - generating AI response',
       );
@@ -107,24 +124,6 @@ class ChatService {
           `✅ [ChatService] AI response stored with ID: ${aiData.id}`,
         );
 
-        // Truly asynchronous proficiency assessment (runs in next event loop tick)
-        if (userId) {
-          console.log(
-            '🎓 [ChatService] Scheduling asynchronous proficiency assessment...',
-          );
-          setImmediate(() => {
-            this.updateUserProficiency(userId, message, sessionId).catch(
-              (proficiencyError) => {
-                console.error(
-                  '❌ [ChatService] Proficiency assessment failed:',
-                  proficiencyError,
-                );
-                // Don't block the chat response if proficiency assessment fails
-              },
-            );
-          });
-        }
-
         // Trigger conversation compression asynchronously if needed
         this.triggerConversationCompression(sessionId);
 
@@ -175,7 +174,7 @@ class ChatService {
       throw new Error('Query is required');
     }
 
-    const client = huggingFaceClient.getInstance();
+    const client = groqClient.getInstance();
 
     const messages = [
       {
@@ -210,10 +209,10 @@ class ChatService {
           );
         }
 
-        // Then get recent non-summary messages for additional context
+        // Then get recent non-summary messages for additional context (limited to stay within TPM limits)
         const recentMessages = await this.getRecentNonSummaryMessages(
           sessionId,
-          8, // Reduced from 10 to leave room for summary
+          4,
         );
 
         if (recentMessages && recentMessages.length > 0) {
@@ -222,10 +221,14 @@ class ChatService {
             (a, b) => new Date(a.created_at) - new Date(b.created_at),
           );
 
-          // Format message history
+          // Format message history with truncated line length to prevent token overflow
           const historyLines = sortedMessages.map((msg) => {
             const timestamp = new Date(msg.created_at).toLocaleString();
-            return `[${timestamp}] ${msg.role}: ${msg.content}`;
+            const text =
+              (msg.content || '').length > 350
+                ? `${(msg.content || '').substring(0, 350)}...`
+                : msg.content;
+            return `[${timestamp}] ${msg.role}: ${text}`;
           });
 
           messageHistoryContext = `\n\nRecent conversation history:\n${historyLines.join('\n')}`;
@@ -450,9 +453,8 @@ class ChatService {
       }
     }
 
-    const chatCompletion = await client.chatCompletion({
-      provider: 'together',
-      model: 'openai/gpt-oss-120b',
+    const chatCompletion = await client.chat.completions.create({
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
       messages: messages,
     });
 
@@ -468,7 +470,7 @@ class ChatService {
       `🆕 [ChatService] Creating new session for userId: ${userId || 'UNAUTHENTICATED'}`,
     );
 
-    // Check if user already has an active "New Conversation" session
+    // Check if user already has an active empty "New Conversation" session
     try {
       const { data: existingSession, error: checkError } = await supabase
         .from('sessions')
@@ -480,10 +482,22 @@ class ChatService {
         .single();
 
       if (!checkError && existingSession) {
+        // Only reuse if this session has NO messages yet (genuinely empty session)
+        const { count, error: countError } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('session_id', existingSession.id);
+
+        if (!countError && count === 0) {
+          console.log(
+            `♻️ [ChatService] Reusing empty "New Conversation" session: ${existingSession.id}`,
+          );
+          return existingSession;
+        }
+
         console.log(
-          `♻️ [ChatService] Reusing existing "New Conversation" session: ${existingSession.id}`,
+          `🆕 [ChatService] Existing "New Conversation" session ${existingSession.id} has ${count} messages, creating a new session instead`,
         );
-        return existingSession;
       }
     } catch (checkError) {
       // Continue with creation if check fails (not a critical error)
@@ -524,7 +538,7 @@ class ChatService {
       throw new Error('User message is required for session summary');
     }
 
-    const client = huggingFaceClient.getInstance();
+    const client = groqClient.getInstance();
 
     const messages = [
       {
@@ -539,9 +553,8 @@ class ChatService {
     ];
 
     try {
-      const chatCompletion = await client.chatCompletion({
-        provider: 'together',
-        model: 'openai/gpt-oss-120b',
+      const chatCompletion = await client.chat.completions.create({
+        model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
         messages: messages,
       });
 
@@ -1389,7 +1402,7 @@ Event ${index + 1}:
         )}...`,
       );
 
-      const client = huggingFaceClient.getInstance();
+      const client = groqClient.getInstance();
 
       const summaryMessages = [
         {
@@ -1407,9 +1420,8 @@ IMPORTANT: Respond with valid JSON in this exact format:
         },
       ];
 
-      const chatCompletion = await client.chatCompletion({
-        provider: 'together',
-        model: 'openai/gpt-oss-120b',
+      const chatCompletion = await client.chat.completions.create({
+        model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
         messages: summaryMessages,
         max_tokens: 450, // Increased from 150 to allow complete JSON responses
         temperature: 0.3, // More focused summary

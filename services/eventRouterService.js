@@ -1,4 +1,4 @@
-const huggingFaceClient = require('../client/huggingfaceClient');
+const groqClient = require('../client/groqClient');
 
 // TODO: TO BE DEPRECATED AFTER KATHAKALI CONTROLLER CHAT FEATURE IS DEPRECATED.
 
@@ -18,12 +18,10 @@ class EventRouterService {
   async parseEventQuery(query) {
     try {
       console.log('Event router: Parsing query with LLM...');
-      const client = huggingFaceClient.getInstance();
+      const client = groqClient.getInstance();
 
-      const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
-      const provider = process.env.HF_CHAT_PROVIDER || 'together';
-      const response = await client.chatCompletion({
-        provider,
+      const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+      const response = await client.chat.completions.create({
         model,
         messages: [
           {

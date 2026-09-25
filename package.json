@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "check:dev": "node scripts/checkDevSupabase.cjs",
+    "start": "node server.js",
     "test": "jest",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -35,6 +37,7 @@
     "minio": "^8.0.5",
     "multer": "^1.4.5-lts.1",
     "node-mocks-http": "^1.14.1",
+    "openai": "^4.104.0",
     "pdf-img-convert": "^1.1.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.13.3",

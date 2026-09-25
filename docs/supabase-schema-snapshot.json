@@ -1,0 +1,1124 @@
+{
+  "columns": [
+    {
+      "table_name": "events",
+      "column_name": "id",
+      "type": "bigint",
+      "not_null": true,
+      "identity": "d",
+      "default_expression": null
+    },
+    {
+      "table_name": "events",
+      "column_name": "title",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "events",
+      "column_name": "description",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "events",
+      "column_name": "start_time",
+      "type": "timestamp with time zone",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "events",
+      "column_name": "end_time",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "events",
+      "column_name": "location",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "events",
+      "column_name": "url",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "events",
+      "column_name": "category",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "events",
+      "column_name": "scraped_at",
+      "type": "timestamp with time zone",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "timezone('utc'::text, now())"
+    },
+    {
+      "table_name": "events",
+      "column_name": "embedding",
+      "type": "vector(384)",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "messages",
+      "column_name": "id",
+      "type": "uuid",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "gen_random_uuid()"
+    },
+    {
+      "table_name": "messages",
+      "column_name": "session_id",
+      "type": "uuid",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "messages",
+      "column_name": "role",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "messages",
+      "column_name": "content",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "messages",
+      "column_name": "metadata",
+      "type": "jsonb",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "'{}'::jsonb"
+    },
+    {
+      "table_name": "messages",
+      "column_name": "created_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "now()"
+    },
+    {
+      "table_name": "messages",
+      "column_name": "response_for",
+      "type": "uuid",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "messages",
+      "column_name": "is_summary",
+      "type": "boolean",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "messages",
+      "column_name": "has_been_summarised",
+      "type": "boolean",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "false"
+    },
+    {
+      "table_name": "music",
+      "column_name": "id",
+      "type": "bigint",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "nextval('music_id_seq'::regclass)"
+    },
+    {
+      "table_name": "music",
+      "column_name": "name",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "ragam_name",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "artist",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "performance_type",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "description",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "lyrics",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "audio_url",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "sheet_music_url",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "duration",
+      "type": "integer",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "tempo",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "tala",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "raga_characteristics",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "emotional_context",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "associated_characters",
+      "type": "text[]",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "metadata",
+      "type": "jsonb",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "embedding",
+      "type": "vector(384)",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "music",
+      "column_name": "created_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "now()"
+    },
+    {
+      "table_name": "music",
+      "column_name": "updated_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "now()"
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "id",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "name",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "path_d",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "tooltip_position",
+      "type": "jsonb",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "description",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "image_url",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "metadata",
+      "type": "jsonb",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "embedding",
+      "type": "vector(384)",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "created_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "now()"
+    },
+    {
+      "table_name": "ornaments",
+      "column_name": "updated_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "now()"
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "id",
+      "type": "uuid",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "gen_random_uuid()"
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "quiz_id",
+      "type": "uuid",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "display_id",
+      "type": "integer",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "concept_id",
+      "type": "character varying(255)",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "target_level",
+      "type": "bloom_level_enum",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "misconception_target",
+      "type": "boolean",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "false"
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "question",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "options",
+      "type": "jsonb",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "correct_answer",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "explanation",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "distractor_map",
+      "type": "jsonb",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "created_at",
+      "type": "timestamp with time zone",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "sequence_no",
+      "type": "integer",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "selected_answer",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "is_correct",
+      "type": "boolean",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "response_ms",
+      "type": "integer",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_question",
+      "column_name": "answered_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_session",
+      "column_name": "id",
+      "type": "uuid",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "gen_random_uuid()"
+    },
+    {
+      "table_name": "quiz_session",
+      "column_name": "user_id",
+      "type": "character varying(255)",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_session",
+      "column_name": "source",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "'adaptive'::text"
+    },
+    {
+      "table_name": "quiz_session",
+      "column_name": "selected_concepts",
+      "type": "jsonb",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_session",
+      "column_name": "created_at",
+      "type": "timestamp with time zone",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table_name": "quiz_session",
+      "column_name": "submitted_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_session",
+      "column_name": "policy_version",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_session",
+      "column_name": "session_state",
+      "type": "jsonb",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "quiz_session",
+      "column_name": "status",
+      "type": "text",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "'active'::text"
+    },
+    {
+      "table_name": "sessions",
+      "column_name": "id",
+      "type": "uuid",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "gen_random_uuid()"
+    },
+    {
+      "table_name": "sessions",
+      "column_name": "user_id",
+      "type": "uuid",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "sessions",
+      "column_name": "title",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "'New Conversation'::text"
+    },
+    {
+      "table_name": "sessions",
+      "column_name": "created_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "now()"
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "column_name": "user_id",
+      "type": "character varying(255)",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "column_name": "node_id",
+      "type": "character varying(255)",
+      "not_null": true,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "column_name": "bloom_level",
+      "type": "bloom_level_enum",
+      "not_null": true,
+      "identity": "",
+      "default_expression": "'0_unseen'::bloom_level_enum"
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "column_name": "misconception_flag",
+      "type": "boolean",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "false"
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "column_name": "last_evidence",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "column_name": "created_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "column_name": "updated_at",
+      "type": "timestamp with time zone",
+      "not_null": false,
+      "identity": "",
+      "default_expression": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "column_name": "last_reasoning",
+      "type": "text",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "column_name": "last_confidence",
+      "type": "double precision",
+      "not_null": false,
+      "identity": "",
+      "default_expression": null
+    }
+  ],
+  "constraints": [
+    {
+      "table_name": "events",
+      "conname": "events_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table_name": "events",
+      "conname": "events_url_key",
+      "definition": "UNIQUE (url)"
+    },
+    {
+      "table_name": "messages",
+      "conname": "messages_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table_name": "messages",
+      "conname": "messages_role_check",
+      "definition": "CHECK ((role = ANY (ARRAY['system'::text, 'user'::text, 'assistant'::text])))"
+    },
+    {
+      "table_name": "music",
+      "conname": "music_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table_name": "ornaments",
+      "conname": "ornaments_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table_name": "quiz_question",
+      "conname": "quiz_question_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table_name": "quiz_session",
+      "conname": "quiz_session_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table_name": "sessions",
+      "conname": "sessions_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table_name": "user_proficiency_state",
+      "conname": "user_proficiency_state_pkey",
+      "definition": "PRIMARY KEY (user_id, node_id)"
+    },
+    {
+      "table_name": "messages",
+      "conname": "fk_messages_response_for",
+      "definition": "FOREIGN KEY (response_for) REFERENCES messages(id) ON DELETE CASCADE"
+    },
+    {
+      "table_name": "messages",
+      "conname": "messages_session_id_fkey",
+      "definition": "FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE"
+    },
+    {
+      "table_name": "quiz_question",
+      "conname": "quiz_question_quiz_id_fkey",
+      "definition": "FOREIGN KEY (quiz_id) REFERENCES quiz_session(id) ON DELETE CASCADE"
+    },
+    {
+      "table_name": "sessions",
+      "conname": "sessions_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id)"
+    }
+  ],
+  "indexes": [
+    {
+      "tablename": "events",
+      "indexname": "events_start_time_idx",
+      "indexdef": "CREATE INDEX events_start_time_idx ON public.events USING btree (start_time)"
+    },
+    {
+      "tablename": "events",
+      "indexname": "events_embedding_idx",
+      "indexdef": "CREATE INDEX events_embedding_idx ON public.events USING ivfflat (embedding vector_cosine_ops) WITH (lists='100')"
+    },
+    {
+      "tablename": "quiz_session",
+      "indexname": "idx_quiz_session_user_id",
+      "indexdef": "CREATE INDEX idx_quiz_session_user_id ON public.quiz_session USING btree (user_id)"
+    },
+    {
+      "tablename": "quiz_session",
+      "indexname": "idx_quiz_session_created_at",
+      "indexdef": "CREATE INDEX idx_quiz_session_created_at ON public.quiz_session USING btree (created_at)"
+    },
+    {
+      "tablename": "quiz_question",
+      "indexname": "idx_quiz_question_sequence",
+      "indexdef": "CREATE UNIQUE INDEX idx_quiz_question_sequence ON public.quiz_question USING btree (quiz_id, sequence_no) WHERE (sequence_no IS NOT NULL)"
+    },
+    {
+      "tablename": "quiz_question",
+      "indexname": "idx_quiz_question_quiz_id",
+      "indexdef": "CREATE INDEX idx_quiz_question_quiz_id ON public.quiz_question USING btree (quiz_id)"
+    },
+    {
+      "tablename": "quiz_question",
+      "indexname": "idx_quiz_question_concept_id",
+      "indexdef": "CREATE INDEX idx_quiz_question_concept_id ON public.quiz_question USING btree (concept_id)"
+    },
+    {
+      "tablename": "user_proficiency_state",
+      "indexname": "idx_user_proficiency_user_id",
+      "indexdef": "CREATE INDEX idx_user_proficiency_user_id ON public.user_proficiency_state USING btree (user_id)"
+    },
+    {
+      "tablename": "user_proficiency_state",
+      "indexname": "idx_user_proficiency_node_id",
+      "indexdef": "CREATE INDEX idx_user_proficiency_node_id ON public.user_proficiency_state USING btree (node_id)"
+    },
+    {
+      "tablename": "user_proficiency_state",
+      "indexname": "idx_user_proficiency_bloom_level",
+      "indexdef": "CREATE INDEX idx_user_proficiency_bloom_level ON public.user_proficiency_state USING btree (bloom_level)"
+    },
+    {
+      "tablename": "user_proficiency_state",
+      "indexname": "idx_user_proficiency_misconception",
+      "indexdef": "CREATE INDEX idx_user_proficiency_misconception ON public.user_proficiency_state USING btree (misconception_flag) WHERE (misconception_flag = true)"
+    },
+    {
+      "tablename": "user_proficiency_state",
+      "indexname": "idx_user_proficiency_updated_at",
+      "indexdef": "CREATE INDEX idx_user_proficiency_updated_at ON public.user_proficiency_state USING btree (updated_at)"
+    },
+    {
+      "tablename": "ornaments",
+      "indexname": "idx_ornaments_name",
+      "indexdef": "CREATE INDEX idx_ornaments_name ON public.ornaments USING btree (name)"
+    },
+    {
+      "tablename": "ornaments",
+      "indexname": "idx_ornaments_embedding",
+      "indexdef": "CREATE INDEX idx_ornaments_embedding ON public.ornaments USING ivfflat (embedding vector_cosine_ops)"
+    },
+    {
+      "tablename": "ornaments",
+      "indexname": "idx_ornaments_search",
+      "indexdef": "CREATE INDEX idx_ornaments_search ON public.ornaments USING gin (to_tsvector('english'::regconfig, ((name || ' '::text) || description)))"
+    },
+    {
+      "tablename": "music",
+      "indexname": "idx_music_name",
+      "indexdef": "CREATE INDEX idx_music_name ON public.music USING btree (name)"
+    },
+    {
+      "tablename": "music",
+      "indexname": "idx_music_ragam",
+      "indexdef": "CREATE INDEX idx_music_ragam ON public.music USING btree (ragam_name)"
+    },
+    {
+      "tablename": "music",
+      "indexname": "idx_music_artist",
+      "indexdef": "CREATE INDEX idx_music_artist ON public.music USING btree (artist)"
+    },
+    {
+      "tablename": "music",
+      "indexname": "idx_music_embedding",
+      "indexdef": "CREATE INDEX idx_music_embedding ON public.music USING ivfflat (embedding vector_cosine_ops)"
+    },
+    {
+      "tablename": "music",
+      "indexname": "idx_music_search",
+      "indexdef": "CREATE INDEX idx_music_search ON public.music USING gin (to_tsvector('english'::regconfig, ((((((((((COALESCE(name, ''::text) || ' '::text) || COALESCE(ragam_name, ''::text)) || ' '::text) || COALESCE(artist, ''::text)) || ' '::text) || COALESCE(description, ''::text)) || ' '::text) || COALESCE(raga_characteristics, ''::text)) || ' '::text) || COALESCE(emotional_context, ''::text))))"
+    },
+    {
+      "tablename": "music",
+      "indexname": "idx_music_characters",
+      "indexdef": "CREATE INDEX idx_music_characters ON public.music USING gin (associated_characters)"
+    },
+    {
+      "tablename": "messages",
+      "indexname": "idx_messages_has_been_summarised",
+      "indexdef": "CREATE INDEX idx_messages_has_been_summarised ON public.messages USING btree (has_been_summarised)"
+    },
+    {
+      "tablename": "messages",
+      "indexname": "idx_messages_session_id_created_at",
+      "indexdef": "CREATE INDEX idx_messages_session_id_created_at ON public.messages USING btree (session_id, created_at)"
+    },
+    {
+      "tablename": "messages",
+      "indexname": "idx_messages_response_for",
+      "indexdef": "CREATE INDEX idx_messages_response_for ON public.messages USING btree (response_for)"
+    }
+  ],
+  "policies": [
+    {
+      "schemaname": "public",
+      "tablename": "events",
+      "policyname": "Allow public read access to events",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "true",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "quiz_session",
+      "policyname": "Users can insert their own quizzes",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((auth.uid())::text = (user_id)::text)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "quiz_session",
+      "policyname": "Users can update their own quizzes",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((auth.uid())::text = (user_id)::text)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "quiz_session",
+      "policyname": "Users can view their own quizzes",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "((auth.uid())::text = (user_id)::text)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "quiz_question",
+      "policyname": "Users can insert questions for their quizzes",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "(EXISTS ( SELECT 1\n   FROM quiz_session s\n  WHERE ((s.id = quiz_question.quiz_id) AND ((s.user_id)::text = (auth.uid())::text))))"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "quiz_question",
+      "policyname": "Users can update questions for their quizzes",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "UPDATE",
+      "qual": "(EXISTS ( SELECT 1\n   FROM quiz_session s\n  WHERE ((s.id = quiz_question.quiz_id) AND ((s.user_id)::text = (auth.uid())::text))))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "quiz_question",
+      "policyname": "Users can view their own quiz questions",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "(EXISTS ( SELECT 1\n   FROM quiz_session s\n  WHERE ((s.id = quiz_question.quiz_id) AND ((s.user_id)::text = (auth.uid())::text))))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "user_proficiency_state",
+      "policyname": "Users can insert their own proficiency",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "INSERT",
+      "qual": null,
+      "with_check": "((auth.uid())::text = (user_id)::text)"
+    },
+    {
+      "schemaname": "public",
+      "tablename": "user_proficiency_state",
+      "policyname": "Users can update their own proficiency",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "UPDATE",
+      "qual": "((auth.uid())::text = (user_id)::text)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "user_proficiency_state",
+      "policyname": "Users can view their own proficiency",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "SELECT",
+      "qual": "((auth.uid())::text = (user_id)::text)",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "sessions",
+      "policyname": "Users can manage their own sessions",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(((auth.uid() IS NOT NULL) AND (auth.uid() = user_id)) OR ((auth.uid() IS NULL) AND (user_id IS NULL)))",
+      "with_check": null
+    },
+    {
+      "schemaname": "public",
+      "tablename": "messages",
+      "policyname": "Users can manage their own messages",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(EXISTS ( SELECT 1\n   FROM sessions\n  WHERE ((sessions.id = messages.session_id) AND (((auth.uid() IS NOT NULL) AND (sessions.user_id = auth.uid())) OR ((auth.uid() IS NULL) AND (sessions.user_id IS NULL))))))",
+      "with_check": null
+    }
+  ],
+  "triggers": [
+    {
+      "definition": "CREATE TRIGGER update_ornaments_updated_at BEFORE UPDATE ON public.ornaments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+    },
+    {
+      "definition": "CREATE TRIGGER update_music_updated_at BEFORE UPDATE ON public.music FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()"
+    },
+    {
+      "definition": "CREATE TRIGGER trg_user_proficiency_updated_at BEFORE UPDATE ON public.user_proficiency_state FOR EACH ROW EXECUTE FUNCTION update_user_proficiency_updated_at()"
+    }
+  ],
+  "functions": [
+    {
+      "proname": "update_user_proficiency_updated_at",
+      "definition": "CREATE OR REPLACE FUNCTION public.update_user_proficiency_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n    NEW.updated_at = CURRENT_TIMESTAMP;\n    RETURN NEW;\nEND;\n$function$\n"
+    },
+    {
+      "proname": "match_events",
+      "definition": "CREATE OR REPLACE FUNCTION public.match_events(query_embedding vector, match_threshold double precision DEFAULT 0.5, match_count integer DEFAULT 5)\n RETURNS TABLE(id bigint, title text, description text, start_time timestamp with time zone, end_time timestamp with time zone, location text, url text, embedding vector, similarity double precision)\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  RETURN QUERY\n  SELECT\n    events.id,\n    events.title,\n    events.description,\n    events.start_time,\n    events.end_time,\n    events.location,\n    events.url,\n    events.embedding,\n    (1 - (events.embedding <=> query_embedding))::float as similarity\n  FROM events\n  WHERE events.embedding IS NOT NULL\n    AND 1 - (events.embedding <=> query_embedding) > match_threshold\n  ORDER BY events.embedding <=> query_embedding\n  LIMIT match_count;\nEND;\n$function$\n"
+    },
+    {
+      "proname": "update_chat_session_on_message",
+      "definition": "CREATE OR REPLACE FUNCTION public.update_chat_session_on_message()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n    -- Update session metadata when messages are added/updated\n    UPDATE chat_sessions \n    SET \n        message_count = (\n            SELECT COUNT(*) \n            FROM chat_messages \n            WHERE session_id = NEW.session_id AND is_deleted = FALSE\n        ),\n        last_message_at = NEW.created_at,\n        updated_at = NOW()\n    WHERE id = NEW.session_id;\n    \n    RETURN NEW;\nEND;\n$function$\n"
+    },
+    {
+      "proname": "match_music",
+      "definition": "CREATE OR REPLACE FUNCTION public.match_music(query_embedding vector, match_threshold double precision, match_count integer)\n RETURNS TABLE(id bigint, name text, ragam_name text, artist text, performance_type text, description text, lyrics text, audio_url text, sheet_music_url text, duration integer, tempo text, tala text, raga_characteristics text, emotional_context text, associated_characters text[], metadata jsonb, similarity double precision)\n LANGUAGE sql\n STABLE\nAS $function$\n  SELECT \n    music.id,\n    music.name,\n    music.ragam_name,\n    music.artist,\n    music.performance_type,\n    music.description,\n    music.lyrics,\n    music.audio_url,\n    music.sheet_music_url,\n    music.duration,\n    music.tempo,\n    music.tala,\n    music.raga_characteristics,\n    music.emotional_context,\n    music.associated_characters,\n    music.metadata,\n    1 - (music.embedding <=> query_embedding) AS similarity\n  FROM music\n  WHERE music.embedding IS NOT NULL\n  AND 1 - (music.embedding <=> query_embedding) > match_threshold\n  ORDER BY music.embedding <=> query_embedding\n  LIMIT match_count;\n$function$\n"
+    },
+    {
+      "proname": "match_ornaments",
+      "definition": "CREATE OR REPLACE FUNCTION public.match_ornaments(query_embedding vector, match_threshold double precision, match_count integer)\n RETURNS TABLE(id text, name text, path_d text, tooltip_position jsonb, description text, image_url text, metadata jsonb, similarity double precision)\n LANGUAGE sql\n STABLE\nAS $function$\n  SELECT \n    ornaments.id,\n    ornaments.name,\n    ornaments.path_d,\n    ornaments.tooltip_position,\n    ornaments.description,\n    ornaments.image_url,\n    ornaments.metadata,\n    1 - (ornaments.embedding <=> query_embedding) AS similarity\n  FROM ornaments\n  WHERE ornaments.embedding IS NOT NULL\n  AND 1 - (ornaments.embedding <=> query_embedding) > match_threshold\n  ORDER BY ornaments.embedding <=> query_embedding\n  LIMIT match_count;\n$function$\n"
+    },
+    {
+      "proname": "update_chat_session_on_message_delete",
+      "definition": "CREATE OR REPLACE FUNCTION public.update_chat_session_on_message_delete()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n    -- Update session metadata when messages are deleted\n    UPDATE chat_sessions \n    SET \n        message_count = (\n            SELECT COUNT(*) \n            FROM chat_messages \n            WHERE session_id = OLD.session_id AND is_deleted = FALSE\n        ),\n        updated_at = NOW()\n    WHERE id = OLD.session_id;\n    \n    RETURN OLD;\nEND;\n$function$\n"
+    },
+    {
+      "proname": "update_updated_at_column",
+      "definition": "CREATE OR REPLACE FUNCTION public.update_updated_at_column()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  NEW.updated_at = NOW();\n  RETURN NEW;\nEND;\n$function$\n"
+    }
+  ],
+  "rls": [
+    {
+      "relname": "events",
+      "relrowsecurity": true,
+      "relforcerowsecurity": false
+    },
+    {
+      "relname": "quiz_session",
+      "relrowsecurity": true,
+      "relforcerowsecurity": false
+    },
+    {
+      "relname": "quiz_question",
+      "relrowsecurity": true,
+      "relforcerowsecurity": false
+    },
+    {
+      "relname": "user_proficiency_state",
+      "relrowsecurity": true,
+      "relforcerowsecurity": false
+    },
+    {
+      "relname": "ornaments",
+      "relrowsecurity": false,
+      "relforcerowsecurity": false
+    },
+    {
+      "relname": "music",
+      "relrowsecurity": false,
+      "relforcerowsecurity": false
+    },
+    {
+      "relname": "sessions",
+      "relrowsecurity": true,
+      "relforcerowsecurity": false
+    },
+    {
+      "relname": "messages",
+      "relrowsecurity": true,
+      "relforcerowsecurity": false
+    }
+  ],
+  "grants": null
+}

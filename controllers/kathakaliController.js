@@ -1,7 +1,6 @@
 /* eslint-disable node/no-unsupported-features/es-syntax */
 const axios = require('axios');
 const FormData = require('form-data');
-const huggingFaceClient = require('../client/huggingfaceClient');
 const groqClient = require('../client/groqClient');
 const supabase = require('../client/supabaseClient');
 const localDb = require('../client/localDbClient');
@@ -21,9 +20,42 @@ const eventRouterService = require('../services/eventRouterService');
 const embeddingService = require('../services/embeddingService');
 const storageService = require('../services/minioStorageService');
 const ProficiencyAssessmentService = require('../services/proficiencyAssessmentService');
+const {
+  getAdaptiveQuizPolicy,
+  createAdaptiveSessionState,
+  getActiveConcept,
+  recordAdaptiveAnswer,
+  validateGeneratedQuestion,
+  shuffleGeneratedQuestionOptions,
+  toPublicQuestion,
+  toProgress,
+} = require('../services/adaptiveQuizService');
 
 const MULTI_TURN_MAX_PREVIOUS_TURNS = 2;
 const MULTI_TURN_HISTORY_MESSAGE_LIMIT = MULTI_TURN_MAX_PREVIOUS_TURNS * 2;
+
+const triggerBackgroundProficiencyAssessment = (
+  userId,
+  message,
+  sessionId = null,
+  logContext = 'chat',
+) => {
+  if (!userId) return;
+  setImmediate(() => {
+    const proficiencyService = new ProficiencyAssessmentService();
+    proficiencyService
+      .assessUserProficiency(userId, message, sessionId)
+      .then((updates) => {
+        if (updates && updates.length > 0) {
+          return proficiencyService.applyProficiencyUpdates(userId, updates);
+        }
+        return null;
+      })
+      .catch((err) => {
+        console.error(`[${logContext}] Proficiency assessment error:`, err);
+      });
+  });
+};
 
 const getLlmLogPreviewChars = () =>
   clampNumber(process.env.LLM_LOG_PROMPT_PREVIEW_CHARS, 100, 5000, 1200);
@@ -631,7 +663,7 @@ exports.chat = async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
-    const client = huggingFaceClient.getInstance();
+    const client = groqClient.getInstance();
 
     const messages = [
       {
@@ -826,11 +858,12 @@ Please use this information to answer the user's question accurately. If the use
       }
     }
 
-    const model = process.env.HF_CHAT_MODEL || 'openai/gpt-oss-120b';
-    const provider = process.env.HF_CHAT_PROVIDER || 'together';
+    const model = groqClient.getModel();
+    const provider =
+      groqClient.getProvider() === 'soclaas' ? 'SoC LaaS' : 'Groq';
     const llmStartedAt = Date.now();
     llmAuditContext = {
-      label: 'HF Chat',
+      label: `${provider} Chat`,
       provider,
       model,
       messages,
@@ -841,14 +874,13 @@ Please use this information to answer the user's question accurately. If the use
     };
 
     logLlmRequestPayload({
-      label: 'HF Chat',
+      label: `${provider} Chat`,
       provider,
       model,
       messages,
     });
 
-    const chatCompletion = await client.chatCompletion({
-      provider,
+    const chatCompletion = await client.chat.completions.create({
       model,
       messages: messages,
     });
@@ -865,6 +897,8 @@ Please use this information to answer the user's question accurately. If the use
     });
 
     const chatbotResponse = preprocessChatResponse(responseMessage);
+
+    triggerBackgroundProficiencyAssessment(req.user?.id, message, null, 'chat');
 
     return res.status(200).json(chatbotResponse);
   } catch (error) {
@@ -1474,6 +1508,13 @@ exports.chatMudras = async (req, res) => {
     chatbotResponse.retrieval = retrievalDebug;
     chatbotResponse.assetMatches = mudraAssetMatches;
 
+    triggerBackgroundProficiencyAssessment(
+      req.user?.id,
+      message,
+      ownedSessionId,
+      'chat-mudras',
+    );
+
     return res.status(200).json(chatbotResponse);
   } catch (error) {
     console.log('Error in chatMudras:', error);
@@ -2030,8 +2071,501 @@ Return ONLY the JSON array, no additional text.`;
   }
 };
 
+const ADAPTIVE_QUESTION_SELECT =
+  'id, sequence_no, concept_id, target_level, misconception_target, question, options, correct_answer, explanation, selected_answer, is_correct, response_ms, answered_at';
+
+const parseGeneratedQuestionJson = (content) => {
+  const cleaned = String(content || '')
+    .replace(/```json\n?/g, '')
+    .replace(/```\n?/g, '')
+    .trim();
+  const parsed = JSON.parse(cleaned);
+  return Array.isArray(parsed) ? parsed[0] : parsed;
+};
+
+const generateSequentialAdaptiveQuestion = async ({
+  descriptor,
+  sequenceNumber,
+  previousQuestion,
+}) => {
+  const client = groqClient.getInstance();
+  const remediation = previousQuestion?.is_correct === false;
+  const previousEvidence = previousQuestion
+    ? {
+        question: previousQuestion.question,
+        selectedAnswer: previousQuestion.selected_answer,
+        correctAnswer: previousQuestion.correct_answer,
+        explanation: previousQuestion.explanation,
+        result: previousQuestion.is_correct ? 'correct' : 'incorrect',
+      }
+    : null;
+
+  const prompt = `You are generating one formative multiple-choice question about Kathakali.
+
+SERVER-SELECTED CONSTRAINTS:
+${JSON.stringify(
+  {
+    concept_id: descriptor.conceptId,
+    current_bloom_level: descriptor.currentLevel,
+    target_level: descriptor.targetLevel,
+    known_misconception: descriptor.misconception,
+    prior_evidence: descriptor.priorEvidence,
+    sequence_number: sequenceNumber,
+    mode: remediation ? 'remediation' : 'mastery_evidence',
+  },
+  null,
+  2,
+)}
+
+PREVIOUS RESPONSE EVIDENCE:
+${JSON.stringify(previousEvidence, null, 2)}
+
+RULES:
+- Test exactly the server-selected concept and target Bloom cognitive level.
+- If mode is remediation, address the observed error using a different question. Do not repeat the previous wording.
+- Otherwise, ask about a different aspect from the previous question.
+- Provide exactly four distinct and plausible options.
+- The correctAnswer must exactly equal one option.
+- Do not mention the learner profile, Bloom level, misconception, or previous response.
+
+Return only one JSON object with exactly these fields:
+{
+  "concept_id": "${descriptor.conceptId}",
+  "target_level": "${descriptor.targetLevel}",
+  "question": "...",
+  "options": ["...", "...", "...", "..."],
+  "correctAnswer": "...",
+  "explanation": "..."
+}`;
+
+  let lastValidationReason = 'No response received';
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    // Retries must be sequential because a second call is only made when the
+    // first model output fails deterministic validation.
+    // eslint-disable-next-line no-await-in-loop
+    const response = await client.chat.completions.create({
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Generate a valid Kathakali assessment item. Output JSON only.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 1200,
+      temperature: 0.4,
+    });
+
+    try {
+      const generated = parseGeneratedQuestionJson(
+        response.choices[0]?.message?.content,
+      );
+      const validation = validateGeneratedQuestion(generated, descriptor);
+      if (validation.valid) {
+        return shuffleGeneratedQuestionOptions(validation.question);
+      }
+      lastValidationReason = validation.reason;
+    } catch (error) {
+      lastValidationReason = error.message;
+    }
+  }
+
+  throw new Error(
+    `Failed to generate a valid adaptive question: ${lastValidationReason}`,
+  );
+};
+
+const createAndPersistSequentialQuestion = async ({
+  quizId,
+  sessionState,
+  previousQuestion = null,
+}) => {
+  const descriptor = getActiveConcept(sessionState);
+  if (!descriptor) return null;
+
+  const sequenceNumber = sessionState.answeredCount + 1;
+  const generated = await generateSequentialAdaptiveQuestion({
+    descriptor,
+    sequenceNumber,
+    previousQuestion,
+  });
+
+  const { data, error } = await supabase
+    .from('quiz_question')
+    .insert({
+      quiz_id: quizId,
+      display_id: sequenceNumber,
+      sequence_no: sequenceNumber,
+      concept_id: descriptor.conceptId,
+      target_level: descriptor.targetLevel,
+      misconception_target: descriptor.misconception,
+      question: generated.question,
+      options: generated.options,
+      correct_answer: generated.correctAnswer,
+      explanation: generated.explanation,
+    })
+    .select(ADAPTIVE_QUESTION_SELECT)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+const applySequentialMasteryUpdate = async (userId, concept, quizId) => {
+  const { data: existingState, error: existingError } = await supabase
+    .from('user_proficiency_state')
+    .select('bloom_level, misconception_flag')
+    .eq('user_id', userId)
+    .eq('node_id', concept.conceptId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  const currentLevel = bloomToNumber(
+    existingState?.bloom_level || concept.currentLevel,
+  );
+  const targetLevel = bloomToNumber(concept.targetLevel);
+  const effectiveLevel = numberToBloom(Math.max(currentLevel, targetLevel));
+  const misconceptionFlag = concept.misconception
+    ? false
+    : Boolean(existingState?.misconception_flag);
+
+  const { error: updateError } = await supabase
+    .from('user_proficiency_state')
+    .upsert(
+      {
+        user_id: userId,
+        node_id: concept.conceptId,
+        bloom_level: effectiveLevel,
+        misconception_flag: misconceptionFlag,
+        last_evidence: `Adaptive quiz ${quizId}: ${concept.consecutiveCorrect} consecutive correct responses at ${concept.targetLevel}`,
+        last_reasoning: `Sequential mastery criterion met under ${'sequential-mastery-v1'}`,
+        last_confidence: 0.9,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,node_id' },
+    );
+
+  if (updateError) throw updateError;
+
+  return {
+    conceptId: concept.conceptId,
+    previousLevel: numberToBloom(currentLevel),
+    newLevel: effectiveLevel,
+    misconceptionCleared:
+      Boolean(existingState?.misconception_flag) && !misconceptionFlag,
+  };
+};
+
 /**
- * Generate adaptive quiz from user's proficiency gaps
+ * Start a server-driven, sequential adaptive formative quiz.
+ * POST /api/kathakali/generate-adaptive-quiz
+ */
+exports.startAdaptiveQuiz = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const policy = getAdaptiveQuizPolicy();
+    const { data: proficiencyStates, error } = await supabase
+      .from('user_proficiency_state')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (error) {
+      return res
+        .status(500)
+        .json({ error: 'Failed to fetch proficiency data' });
+    }
+    if (!proficiencyStates || proficiencyStates.length === 0) {
+      return res.status(404).json({
+        error:
+          'No proficiency data found. Complete a learning session before starting an adaptive quiz.',
+      });
+    }
+
+    const sessionState = createAdaptiveSessionState(proficiencyStates, policy);
+    if (sessionState.concepts.length === 0) {
+      return res.status(404).json({ error: 'No eligible concepts found' });
+    }
+
+    const { data: quizSession, error: sessionError } = await supabase
+      .from('quiz_session')
+      .insert({
+        user_id: userId,
+        source: 'adaptive-sequential',
+        policy_version: policy.version,
+        status: 'active',
+        selected_concepts: sessionState.concepts,
+        session_state: sessionState,
+      })
+      .select('id, created_at')
+      .single();
+
+    if (sessionError) {
+      console.error('[ADAPTIVE START] Session insert failed:', sessionError);
+      return res.status(500).json({ error: 'Failed to create quiz session' });
+    }
+
+    const question = await createAndPersistSequentialQuestion({
+      quizId: quizSession.id,
+      sessionState,
+    });
+
+    return res.status(201).json({
+      quizId: quizSession.id,
+      source: 'adaptive-sequential',
+      policyVersion: policy.version,
+      createdAt: quizSession.created_at,
+      question: toPublicQuestion(question),
+      progress: toProgress(sessionState),
+    });
+  } catch (error) {
+    console.error('[ADAPTIVE START] Error:', error);
+    return res.status(500).json({ error: 'Failed to start adaptive quiz' });
+  }
+};
+
+const getOwnedQuizSession = async (
+  quizId,
+  userId,
+  selectFields = 'id, user_id, status, session_state, submitted_at',
+) => {
+  const { data: session, error: sessionError } = await supabase
+    .from('quiz_session')
+    .select(selectFields)
+    .eq('id', quizId)
+    .single();
+
+  if (sessionError || !session) {
+    return { errorStatus: 404, errorMessage: 'Quiz session not found' };
+  }
+  if (String(session.user_id) !== String(userId)) {
+    return { errorStatus: 403, errorMessage: 'Forbidden' };
+  }
+  return { session };
+};
+
+const validateAnswerableQuestion = (question, answer) => {
+  if (!question) {
+    return { errorStatus: 404, errorMessage: 'Quiz question not found' };
+  }
+  if (question.answered_at) {
+    return { errorStatus: 409, errorMessage: 'Question was already answered' };
+  }
+  if (!Array.isArray(question.options) || !question.options.includes(answer)) {
+    return { errorStatus: 400, errorMessage: 'Answer must match an option' };
+  }
+  return null;
+};
+
+/**
+ * Grade one answer, update session evidence, and select the next question.
+ * POST /api/kathakali/quiz/:quizId/answer
+ */
+exports.answerAdaptiveQuizQuestion = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { quizId } = req.params;
+    const { questionId, answer, responseMs } = req.body || {};
+
+    if (!questionId || typeof answer !== 'string' || !answer.trim()) {
+      return res
+        .status(400)
+        .json({ error: 'questionId and a non-empty answer are required' });
+    }
+
+    const { session, errorStatus, errorMessage } = await getOwnedQuizSession(
+      quizId,
+      userId,
+    );
+    if (errorStatus) {
+      return res.status(errorStatus).json({ error: errorMessage });
+    }
+    if (session.status === 'completed') {
+      return res.status(409).json({
+        error: 'Quiz session is already completed',
+        progress: toProgress(session.session_state),
+      });
+    }
+
+    const { data: question, error: questionError } = await supabase
+      .from('quiz_question')
+      .select(ADAPTIVE_QUESTION_SELECT)
+      .eq('id', questionId)
+      .eq('quiz_id', quizId)
+      .single();
+
+    if (questionError) {
+      return res.status(404).json({ error: 'Quiz question not found' });
+    }
+    const questionValidation = validateAnswerableQuestion(question, answer);
+    if (questionValidation) {
+      return res
+        .status(questionValidation.errorStatus)
+        .json({ error: questionValidation.errorMessage });
+    }
+
+    const selectedAnswer = answer.trim();
+    const isCorrect = selectedAnswer === question.correct_answer;
+    const normalizedResponseMs = Number.isFinite(Number(responseMs))
+      ? Math.min(86400000, Math.max(0, Math.round(Number(responseMs))))
+      : null;
+    const answeredAt = new Date().toISOString();
+
+    const { data: answeredQuestion, error: answerError } = await supabase
+      .from('quiz_question')
+      .update({
+        selected_answer: selectedAnswer,
+        is_correct: isCorrect,
+        response_ms: normalizedResponseMs,
+        answered_at: answeredAt,
+      })
+      .eq('id', questionId)
+      .eq('quiz_id', quizId)
+      .is('answered_at', null)
+      .select(ADAPTIVE_QUESTION_SELECT)
+      .maybeSingle();
+
+    if (answerError) throw answerError;
+    if (!answeredQuestion) {
+      return res.status(409).json({ error: 'Question was already answered' });
+    }
+
+    const transition = recordAdaptiveAnswer(
+      session.session_state,
+      question.concept_id,
+      isCorrect,
+    );
+    const proficiencyUpdatesApplied = [];
+
+    if (transition.newlyMastered) {
+      const update = await applySequentialMasteryUpdate(
+        userId,
+        transition.masteredConcept,
+        quizId,
+      );
+      proficiencyUpdatesApplied.push(update);
+    }
+
+    const completed = transition.sessionState.status === 'completed';
+    const { error: stateError } = await supabase
+      .from('quiz_session')
+      .update({
+        session_state: transition.sessionState,
+        status: transition.sessionState.status,
+        submitted_at: completed ? answeredAt : null,
+      })
+      .eq('id', quizId)
+      .eq('user_id', userId);
+
+    if (stateError) throw stateError;
+
+    let nextQuestion = null;
+    let nextQuestionError = null;
+    if (!completed) {
+      try {
+        const nextRow = await createAndPersistSequentialQuestion({
+          quizId,
+          sessionState: transition.sessionState,
+          previousQuestion: answeredQuestion,
+        });
+        nextQuestion = toPublicQuestion(nextRow);
+      } catch (error) {
+        console.error('[ADAPTIVE ANSWER] Next question failed:', error);
+        nextQuestionError =
+          'Your answer was saved, but the next question could not be generated. Please retry.';
+      }
+    }
+
+    return res.status(200).json({
+      quizId,
+      result: {
+        questionId: question.id,
+        correct: isCorrect,
+        selectedAnswer,
+        correctAnswer: question.correct_answer,
+        explanation: question.explanation,
+      },
+      nextQuestion,
+      nextQuestionError,
+      progress: toProgress(transition.sessionState),
+      proficiencyUpdatesApplied,
+    });
+  } catch (error) {
+    console.error('[ADAPTIVE ANSWER] Error:', error);
+    return res.status(500).json({ error: 'Failed to process adaptive answer' });
+  }
+};
+
+/**
+ * Resume an active session or recover after next-question generation failed.
+ * GET /api/kathakali/quiz/:quizId/current
+ */
+exports.getAdaptiveQuizCurrent = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { quizId } = req.params;
+    const { session, errorStatus, errorMessage } = await getOwnedQuizSession(
+      quizId,
+      userId,
+      'id, user_id, status, session_state, policy_version',
+    );
+
+    if (errorStatus) {
+      return res.status(errorStatus).json({ error: errorMessage });
+    }
+    if (session.status === 'completed') {
+      return res.status(200).json({
+        quizId,
+        question: null,
+        progress: toProgress(session.session_state),
+      });
+    }
+
+    const { data: existingQuestion, error: existingError } = await supabase
+      .from('quiz_question')
+      .select(ADAPTIVE_QUESTION_SELECT)
+      .eq('quiz_id', quizId)
+      .is('answered_at', null)
+      .order('sequence_no', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+
+    let question = existingQuestion;
+    if (!question) {
+      const { data: previousQuestion, error: previousError } = await supabase
+        .from('quiz_question')
+        .select(ADAPTIVE_QUESTION_SELECT)
+        .eq('quiz_id', quizId)
+        .not('answered_at', 'is', null)
+        .order('sequence_no', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (previousError) throw previousError;
+
+      question = await createAndPersistSequentialQuestion({
+        quizId,
+        sessionState: session.session_state,
+        previousQuestion,
+      });
+    }
+
+    return res.status(200).json({
+      quizId,
+      policyVersion: session.policy_version,
+      question: toPublicQuestion(question),
+      progress: toProgress(session.session_state),
+    });
+  } catch (error) {
+    console.error('[ADAPTIVE CURRENT] Error:', error);
+    return res.status(500).json({ error: 'Failed to load adaptive quiz' });
+  }
+};
+
+/**
+ * Legacy batch generator retained temporarily for older clients.
  * GET /api/kathakali/generate-adaptive-quiz
  */
 exports.generateAdaptiveQuiz = async (req, res) => {

@@ -1,5 +1,20 @@
 # culture-web-be
 
+## Local development: start here
+
+Use KathakalAI's shared development Supabase `rzokzctxdqagnmhqhrqd`;
+production is separate: `cxtsnupbfqqosvzhwqyw`.
+Obtain dev keys and other env values from the current maintainer (or a previous
+maintainer if nobody is currently working on the project), copy `.env.example` to `.env`
+without overwriting existing settings, then run `npm ci`,
+`npm run check:dev` and `npm run dev`.
+Configure the sibling frontend for the same project before checking.
+Follow [the setup guide](docs/development-environment.md) for external KB
+dependencies, separate application signup and maintainer-provisioned KB roles.
+The existing hosted dev schema needs no migration during onboarding.
+
+The older table-maintenance notes below are reference material, not onboarding steps.
+
 # Events Table Setup Guide
 
 ## Overview

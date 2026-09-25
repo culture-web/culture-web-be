@@ -31,7 +31,12 @@ router.post(
   kathakaliController.classifyExpression, // Classify only expressions
 );
 
-router.post('/chat', multerUploadErrorMiddleware, kathakaliController.chat);
+router.post(
+  '/chat',
+  optionalAuth,
+  multerUploadErrorMiddleware,
+  kathakaliController.chat,
+);
 
 router.post(
   '/chat-mudras',
@@ -85,6 +90,24 @@ router.get(
   '/generate-adaptive-quiz',
   authenticateToken,
   kathakaliController.generateAdaptiveQuiz,
+);
+
+router.post(
+  '/generate-adaptive-quiz',
+  authenticateToken,
+  kathakaliController.startAdaptiveQuiz,
+);
+
+router.post(
+  '/quiz/:quizId/answer',
+  authenticateToken,
+  kathakaliController.answerAdaptiveQuizQuestion,
+);
+
+router.get(
+  '/quiz/:quizId/current',
+  authenticateToken,
+  kathakaliController.getAdaptiveQuizCurrent,
 );
 
 router.post(

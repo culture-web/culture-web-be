@@ -22,6 +22,12 @@ const kathakaliController = require('../../controllers/kathakaliController');
 const kathakaliRoutes = require('../../routes/kathakaliRoutes');
 
 jest.mock('../../controllers/kathakaliController');
+jest.mock('../../middleware/authMiddleware', () => ({
+  authenticateToken: (req, res, next) => next(),
+  optionalAuth: (req, res, next) => next(),
+  verifyAdminToken: (req, res, next) => next(),
+  requireKbRoles: () => (req, res, next) => next(),
+}));
 jest.mock('../../middleware/makeMulterMiddleware', () =>
   jest.fn(() => (req, res, next) => {
     next();
@@ -68,5 +74,50 @@ describe('POST /classify-expression', () => {
     const res = await request(app).post('/classify-expression').send();
     expect(res.statusCode).toBe(200);
     expect(kathakaliController.classifyExpression).toHaveBeenCalled();
+  });
+});
+
+describe('sequential adaptive quiz routes', () => {
+  let app;
+
+  beforeEach(() => {
+    app = express();
+    app.use(express.json());
+    app.use(kathakaliRoutes);
+  });
+
+  it('starts an adaptive quiz with POST', async () => {
+    kathakaliController.startAdaptiveQuiz.mockImplementation((req, res) =>
+      res.status(201).json({ quizId: 'quiz-1' }),
+    );
+
+    const res = await request(app).post('/generate-adaptive-quiz').send({});
+
+    expect(res.statusCode).toBe(201);
+    expect(kathakaliController.startAdaptiveQuiz).toHaveBeenCalled();
+  });
+
+  it('submits one adaptive answer', async () => {
+    kathakaliController.answerAdaptiveQuizQuestion.mockImplementation(
+      (req, res) => res.status(200).json({ quizId: req.params.quizId }),
+    );
+
+    const res = await request(app)
+      .post('/quiz/quiz-1/answer')
+      .send({ questionId: 'question-1', answer: 'A' });
+
+    expect(res.statusCode).toBe(200);
+    expect(kathakaliController.answerAdaptiveQuizQuestion).toHaveBeenCalled();
+  });
+
+  it('resumes the current adaptive question', async () => {
+    kathakaliController.getAdaptiveQuizCurrent.mockImplementation((req, res) =>
+      res.status(200).json({ quizId: req.params.quizId }),
+    );
+
+    const res = await request(app).get('/quiz/quiz-1/current');
+
+    expect(res.statusCode).toBe(200);
+    expect(kathakaliController.getAdaptiveQuizCurrent).toHaveBeenCalled();
   });
 });
