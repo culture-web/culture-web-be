@@ -859,8 +859,12 @@ Please use this information to answer the user's question accurately. If the use
     }
 
     const model = groqClient.getModel();
-    const provider =
-      groqClient.getProvider() === 'soclaas' ? 'SoC LaaS' : 'Groq';
+    let provider = 'Groq';
+    if (groqClient.getProvider() === 'soclaas') {
+      provider = 'SoC LaaS';
+    } else if (groqClient.getProvider() === 'openai') {
+      provider = 'OpenAI';
+    }
     const llmStartedAt = Date.now();
     llmAuditContext = {
       label: `${provider} Chat`,
