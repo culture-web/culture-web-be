@@ -60,6 +60,128 @@ describe('Adaptive Quiz Controller Endpoints', () => {
     return chain;
   };
 
+  const buildQuizFixtures = ({
+    answeredCount = 0,
+    consecutiveCorrect = 0,
+    questionId = 'question-uuid-1',
+    userAnswer = 'Paccha',
+    responseMs = 1200,
+  } = {}) => {
+    const sessionRow = {
+      id: 'session-uuid-1',
+      user_id: 'user-123',
+      status: 'active',
+      session_state: {
+        status: 'active',
+        answeredCount,
+        correctCount: answeredCount,
+        masteryStreak: 3,
+        maxQuestions: 12,
+        activeConceptId: 'paccha_concept',
+        policyVersion: 'sequential-mastery-v1',
+        concepts: [
+          {
+            conceptId: 'paccha_concept',
+            currentLevel: '1_remember',
+            targetLevel: '2_understand',
+            attempts: answeredCount,
+            correct: answeredCount,
+            consecutiveCorrect,
+            mastered: false,
+            misconception: false,
+          },
+        ],
+      },
+    };
+
+    const questionRow = {
+      id: questionId,
+      quiz_id: 'session-uuid-1',
+      concept_id: 'paccha_concept',
+      target_level: '2_understand',
+      misconception_target: false,
+      question: 'Which character type features green makeup?',
+      options: ['Paccha', 'Kathi', 'Thaadi', 'Minukku'],
+      correct_answer: 'Paccha',
+      explanation: 'Paccha characters portray divine virtues.',
+      answered_at: null,
+    };
+
+    const answeredQuestionRow = {
+      ...questionRow,
+      selected_answer: userAnswer,
+      is_correct: userAnswer === questionRow.correct_answer,
+      response_ms: responseMs,
+      answered_at: '2026-09-30T10:00:00.000Z',
+    };
+
+    return { sessionRow, questionRow, answeredQuestionRow };
+  };
+
+  const mockSupabaseAnswerFlow = ({
+    sessionRow,
+    questionRow,
+    answeredQuestionRow,
+    nextQuestionRow = null,
+    proficiencyRow = null,
+    upsertFn = jest.fn(),
+  }) => {
+    supabase.from.mockImplementation((tableName) => {
+      if (tableName === 'quiz_session') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: sessionRow,
+            error: null,
+          }),
+          update: jest.fn().mockImplementation(() => createChainableUpdate()),
+        };
+      }
+      if (tableName === 'quiz_question') {
+        const query = {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          single: jest.fn().mockResolvedValue({
+            data: questionRow,
+            error: null,
+          }),
+          update: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnThis(),
+            is: jest.fn().mockReturnThis(),
+            select: jest.fn().mockReturnThis(),
+            maybeSingle: jest.fn().mockResolvedValue({
+              data: answeredQuestionRow,
+              error: null,
+            }),
+          }),
+        };
+        if (nextQuestionRow) {
+          query.insert = jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({
+              data: nextQuestionRow,
+              error: null,
+            }),
+          });
+        }
+        return query;
+      }
+      if (tableName === 'user_proficiency_state') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: proficiencyRow,
+            error: null,
+          }),
+          upsert: upsertFn,
+        };
+      }
+      return {};
+    });
+  };
+
   describe('POST /kathakali/generate-adaptive-quiz', () => {
     beforeEach(() => {
       req = httpMocks.createRequest({
@@ -110,7 +232,6 @@ describe('Adaptive Quiz Controller Endpoints', () => {
         },
       ];
 
-      // Mock Groq generation
       mockGroqInstance.chat.completions.create.mockResolvedValue({
         choices: [
           {
@@ -128,10 +249,6 @@ describe('Adaptive Quiz Controller Endpoints', () => {
         ],
       });
 
-      // Mock DB calls:
-      // 1. proficiency query
-      // 2. quiz_session insert
-      // 3. quiz_question insert
       supabase.from.mockImplementation((tableName) => {
         if (tableName === 'user_proficiency_state') {
           return {
@@ -190,7 +307,6 @@ describe('Adaptive Quiz Controller Endpoints', () => {
       expect(data.question.question).toBe(
         'Which character type features green makeup?',
       );
-      // Ensure private answers are stripped
       expect(data.question.correct_answer).toBeUndefined();
       expect(data.question.correctAnswer).toBeUndefined();
       expect(data.question.explanation).toBeUndefined();
@@ -205,9 +321,7 @@ describe('Adaptive Quiz Controller Endpoints', () => {
         method: 'POST',
         user: { id: 'user-123' },
         params: { quizId: 'session-uuid-1' },
-        body: {
-          /* missing questionId and answer */
-        },
+        body: {},
       });
 
       await answerAdaptiveQuizQuestion(req, res);
@@ -297,53 +411,12 @@ describe('Adaptive Quiz Controller Endpoints', () => {
         },
       });
 
-      const sessionRow = {
-        id: 'session-uuid-1',
-        user_id: 'user-123',
-        status: 'active',
-        session_state: {
-          status: 'active',
+      const { sessionRow, questionRow, answeredQuestionRow } =
+        buildQuizFixtures({
           answeredCount: 0,
-          correctCount: 0,
-          masteryStreak: 3,
-          maxQuestions: 12,
-          activeConceptId: 'paccha_concept',
-          policyVersion: 'sequential-mastery-v1',
-          concepts: [
-            {
-              conceptId: 'paccha_concept',
-              currentLevel: '1_remember',
-              targetLevel: '2_understand',
-              attempts: 0,
-              correct: 0,
-              consecutiveCorrect: 0,
-              mastered: false,
-              misconception: false,
-            },
-          ],
-        },
-      };
-
-      const questionRow = {
-        id: 'question-uuid-1',
-        quiz_id: 'session-uuid-1',
-        concept_id: 'paccha_concept',
-        target_level: '2_understand',
-        misconception_target: false,
-        question: 'Which character type features green makeup?',
-        options: ['Paccha', 'Kathi', 'Thaadi', 'Minukku'],
-        correct_answer: 'Paccha',
-        explanation: 'Paccha characters portray divine virtues.',
-        answered_at: null,
-      };
-
-      const answeredQuestionRow = {
-        ...questionRow,
-        selected_answer: 'Paccha',
-        is_correct: true,
-        response_ms: 1200,
-        answered_at: '2026-09-30T10:01:00.000Z',
-      };
+          consecutiveCorrect: 0,
+          questionId: 'question-uuid-1',
+        });
 
       const nextQuestionRow = {
         id: 'question-uuid-2',
@@ -361,7 +434,6 @@ describe('Adaptive Quiz Controller Endpoints', () => {
         answered_at: null,
       };
 
-      // Mock Groq generation for next question
       mockGroqInstance.chat.completions.create.mockResolvedValue({
         choices: [
           {
@@ -380,51 +452,12 @@ describe('Adaptive Quiz Controller Endpoints', () => {
       });
 
       const upsertSpy = jest.fn();
-
-      supabase.from.mockImplementation((tableName) => {
-        if (tableName === 'quiz_session') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: sessionRow,
-              error: null,
-            }),
-            update: jest.fn().mockImplementation(() => createChainableUpdate()),
-          };
-        }
-        if (tableName === 'quiz_question') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: questionRow,
-              error: null,
-            }),
-            update: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnThis(),
-              is: jest.fn().mockReturnThis(),
-              select: jest.fn().mockReturnThis(),
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: answeredQuestionRow,
-                error: null,
-              }),
-            }),
-            insert: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnThis(),
-              single: jest.fn().mockResolvedValue({
-                data: nextQuestionRow,
-                error: null,
-              }),
-            }),
-          };
-        }
-        if (tableName === 'user_proficiency_state') {
-          return {
-            upsert: upsertSpy,
-          };
-        }
-        return {};
+      mockSupabaseAnswerFlow({
+        sessionRow,
+        questionRow,
+        answeredQuestionRow,
+        nextQuestionRow,
+        upsertFn: upsertSpy,
       });
 
       await answerAdaptiveQuizQuestion(req, res);
@@ -435,7 +468,6 @@ describe('Adaptive Quiz Controller Endpoints', () => {
       expect(data.result.correctAnswer).toBe('Paccha');
       expect(data.progress.currentStreak).toBe(1);
       expect(data.proficiencyUpdatesApplied).toHaveLength(0);
-      // Proficiency table should NOT be touched for streak 1
       expect(upsertSpy).not.toHaveBeenCalled();
     });
 
@@ -451,104 +483,27 @@ describe('Adaptive Quiz Controller Endpoints', () => {
         },
       });
 
-      const sessionRow = {
-        id: 'session-uuid-1',
-        user_id: 'user-123',
-        status: 'active',
-        session_state: {
-          status: 'active',
+      const { sessionRow, questionRow, answeredQuestionRow } =
+        buildQuizFixtures({
           answeredCount: 2,
-          correctCount: 2,
-          masteryStreak: 3,
-          maxQuestions: 12,
-          activeConceptId: 'paccha_concept',
-          policyVersion: 'sequential-mastery-v1',
-          concepts: [
-            {
-              conceptId: 'paccha_concept',
-              currentLevel: '1_remember',
-              targetLevel: '2_understand',
-              attempts: 2,
-              correct: 2,
-              consecutiveCorrect: 2,
-              mastered: false,
-              misconception: false,
-            },
-          ],
-        },
-      };
-
-      const questionRow = {
-        id: 'question-uuid-3',
-        quiz_id: 'session-uuid-1',
-        concept_id: 'paccha_concept',
-        target_level: '2_understand',
-        misconception_target: false,
-        question: 'Third question on paccha',
-        options: ['Paccha', 'Kathi', 'Thaadi', 'Minukku'],
-        correct_answer: 'Paccha',
-        explanation: 'Paccha explanation.',
-        answered_at: null,
-      };
-
-      const answeredQuestionRow = {
-        ...questionRow,
-        selected_answer: 'Paccha',
-        is_correct: true,
-        response_ms: 1500,
-        answered_at: '2026-09-30T10:03:00.000Z',
-      };
+          consecutiveCorrect: 2,
+          questionId: 'question-uuid-3',
+          responseMs: 1500,
+        });
 
       const upsertMock = jest
         .fn()
         .mockResolvedValue({ data: null, error: null });
 
-      supabase.from.mockImplementation((tableName) => {
-        if (tableName === 'quiz_session') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: sessionRow,
-              error: null,
-            }),
-            update: jest.fn().mockImplementation(() => createChainableUpdate()),
-          };
-        }
-        if (tableName === 'quiz_question') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: questionRow,
-              error: null,
-            }),
-            update: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnThis(),
-              is: jest.fn().mockReturnThis(),
-              select: jest.fn().mockReturnThis(),
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: answeredQuestionRow,
-                error: null,
-              }),
-            }),
-          };
-        }
-        if (tableName === 'user_proficiency_state') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            maybeSingle: jest.fn().mockResolvedValue({
-              data: {
-                bloom_level: '1_remember',
-                misconception_flag: false,
-              },
-              error: null,
-            }),
-            upsert: upsertMock,
-          };
-        }
-        return {};
+      mockSupabaseAnswerFlow({
+        sessionRow,
+        questionRow,
+        answeredQuestionRow,
+        proficiencyRow: {
+          bloom_level: '1_remember',
+          misconception_flag: false,
+        },
+        upsertFn: upsertMock,
       });
 
       await answerAdaptiveQuizQuestion(req, res);
@@ -566,7 +521,6 @@ describe('Adaptive Quiz Controller Endpoints', () => {
           misconceptionCleared: false,
         },
       ]);
-      // Verify upsert occurred with elevated target level
       expect(upsertMock).toHaveBeenCalledWith(
         expect.objectContaining({
           user_id: 'user-123',
