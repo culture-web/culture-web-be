@@ -44,6 +44,16 @@ class GroqClientSingleton {
       delete finalParams.max_tokens;
     }
 
+    // Set an upper completion token limit in production to protect against credit burnout
+    if (
+      process.env.NODE_ENV === 'production' &&
+      finalParams.max_completion_tokens === undefined
+    ) {
+      finalParams.max_completion_tokens = process.env.OPENAI_MAX_TOKENS
+        ? Number(process.env.OPENAI_MAX_TOKENS)
+        : 600;
+    }
+
     // Ensure reasoning models have enough headroom for internal reasoning tokens
     if (
       isReasoningModel &&
