@@ -40,6 +40,7 @@ jobs:
           echo "SOCLAAS_MODEL=${{ secrets.SOCLAAS_MODEL }}" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
           echo "OPENAI_MODEL=${{ secrets.OPENAI_MODEL }}" >> .env
+          echo "OPENAI_MAX_TOKENS=${{ secrets.OPENAI_MAX_TOKENS }}" >> .env
           echo "LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}" >> .env
           echo "KB_USERNAME=${{ secrets.KB_USERNAME }}" >> .env
           echo "KB_PASSWORD=${{ secrets.KB_PASSWORD }}" >> .env

@@ -60,10 +60,18 @@ describe('GroqClientSingleton / LLM Client Multi-Provider Tests', () => {
     expect(groqClient.getModel()).toBe('openai/gpt-oss-120b');
   });
 
-  const runMockCompletion = async (model, inputParams) => {
-    process.env.NODE_ENV = 'production';
-    process.env.OPENAI_API_KEY = 'test-openai-key';
-    process.env.OPENAI_MODEL = model;
+  const runMockCompletion = async (model, inputParams, envOverrides = {}) => {
+    // eslint-disable-next-line prefer-object-spread
+    process.env = Object.assign(
+      {},
+      originalEnv,
+      {
+        NODE_ENV: 'production',
+        OPENAI_API_KEY: 'test-openai-key',
+        OPENAI_MODEL: model,
+      },
+      envOverrides,
+    );
 
     const client = groqClient.getInstance();
     const mockCreate = jest.fn().mockResolvedValue({
@@ -102,5 +110,35 @@ describe('GroqClientSingleton / LLM Client Multi-Provider Tests', () => {
     expect(passed.temperature).toBe(0.7);
     expect(passed.max_tokens).toBeUndefined();
     expect(passed.max_completion_tokens).toBe(1500);
+  });
+
+  test('enforces default 600 max_completion_tokens in production when unspecified', async () => {
+    const passed = await runMockCompletion('gpt-4o-mini', {});
+    expect(passed.max_completion_tokens).toBe(600);
+  });
+
+  test('respects custom OPENAI_MAX_TOKENS in production when unspecified by caller', async () => {
+    const passed = await runMockCompletion(
+      'gpt-4o-mini',
+      {},
+      { OPENAI_MAX_TOKENS: '850' },
+    );
+    expect(passed.max_completion_tokens).toBe(850);
+  });
+
+  test('preserves explicit caller max_tokens in production without overriding with 600', async () => {
+    const passed = await runMockCompletion('gpt-4o-mini', {
+      max_tokens: 2000,
+    });
+    expect(passed.max_completion_tokens).toBe(2000);
+  });
+
+  test('does not enforce completion token cap when not in production environment', async () => {
+    const passed = await runMockCompletion(
+      'gpt-4o-mini',
+      {},
+      { NODE_ENV: 'development', LLM_PROVIDER: 'openai' },
+    );
+    expect(passed.max_completion_tokens).toBeUndefined();
   });
 });
