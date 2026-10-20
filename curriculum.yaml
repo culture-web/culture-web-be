@@ -152,9 +152,9 @@ curriculum:
     
   asamyukta_mudras:
     name: "Asamyukta Mudras (Single Hand)"
-    description: "Single-hand gestures and their meanings"
+    description: "The 24 root Kathakali hand gestures from Hastalakshana Deepika and their meanings"
     prerequisites: ["mudras_intro"]
-    children: ["pataka", "tripataka", "ardhachandra", "kartarimukha", "mayura", "ardhapataka", "bhramara", "hamsasya", "hamsapaksha", "sandamsha", "mukula", "tamrachuda", "trishula", "kataka", "suchi", "chandrakala", "padmakosha", "sarpashirsha", "mrigashirsha", "simhamukha", "kangula", "alapadma", "chatura", "brahma"]
+    children: ["pathaka", "mudrakhyam", "katakam", "mushti", "karthareemukham", "shukathundam", "kapitham", "hamsapaksham", "sikharam", "hamsasyam", "anjali", "ardhachandram", "mukuram", "bhramaram", "soocheemukham", "pallavam", "thripathaka", "mrigaseersham", "sarpasirassu", "vardhamanakam", "aralam", "ooranabham", "mukulam", "kadakamukham"]
     
   samyukta_mudras:
     name: "Samyukta Mudras (Double Hand)"  
