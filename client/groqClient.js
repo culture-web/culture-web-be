@@ -18,6 +18,16 @@ class GroqClientSingleton {
     );
   }
 
+  _isOpenAIModel(model) {
+    const modelStr = String(model || '').toLowerCase();
+    return (
+      this._isReasoningModel(modelStr) ||
+      modelStr.startsWith('gpt-') ||
+      (Boolean(process.env.OPENAI_MODEL) &&
+        modelStr === String(process.env.OPENAI_MODEL).toLowerCase())
+    );
+  }
+
   _normalizeOpenAIParams(params, activeModel) {
     // eslint-disable-next-line prefer-object-spread
     const finalParams = Object.assign({}, params);
@@ -66,43 +76,155 @@ class GroqClientSingleton {
     return finalParams;
   }
 
+  _normalizeSoclaasParams(params, activeModel) {
+    // eslint-disable-next-line prefer-object-spread
+    const finalParams = Object.assign({}, params);
+    if (
+      !finalParams.model ||
+      finalParams.model === 'openai/gpt-oss-120b' ||
+      this._isOpenAIModel(finalParams.model)
+    ) {
+      finalParams.model = activeModel;
+    }
+    return finalParams;
+  }
+
+  _normalizeGroqParams(params, activeModel) {
+    // eslint-disable-next-line prefer-object-spread
+    const finalParams = Object.assign({}, params);
+    if (
+      !finalParams.model ||
+      finalParams.model === 'default' ||
+      finalParams.model === process.env.SOCLAAS_MODEL ||
+      this._isOpenAIModel(finalParams.model)
+    ) {
+      finalParams.model = activeModel;
+    }
+    return finalParams;
+  }
+
+  _hasProviderKey(provider) {
+    if (provider === 'soclaas') return Boolean(process.env.SOCLAAS_API_KEY);
+    if (provider === 'groq') return Boolean(process.env.GROQ_API_KEY);
+    if (provider === 'openai') return Boolean(process.env.OPENAI_API_KEY);
+    return false;
+  }
+
   _resolveProvider() {
     if (process.env.LLM_PROVIDER) {
-      return process.env.LLM_PROVIDER.toLowerCase();
+      const explicitProvider = process.env.LLM_PROVIDER.toLowerCase();
+      if (this._hasProviderKey(explicitProvider)) {
+        return explicitProvider;
+      }
     }
 
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction) {
-      if (process.env.OPENAI_API_KEY) return 'openai';
-      if (process.env.SOCLAAS_API_KEY) return 'soclaas';
-      if (process.env.GROQ_API_KEY) return 'groq';
-      return null;
-    }
-
+    // Default priority across all environments: SoC LaaS -> Groq -> OpenAI (last resort)
     if (process.env.SOCLAAS_API_KEY) return 'soclaas';
-    if (process.env.OPENAI_API_KEY) return 'openai';
     if (process.env.GROQ_API_KEY) return 'groq';
+    if (process.env.OPENAI_API_KEY) return 'openai';
     return null;
   }
 
-  _initOpenAI() {
-    const rawClient = new OpenAI({
-      baseURL: process.env.OPENAI_BASE_URL || undefined,
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-    const activeModel = process.env.OPENAI_MODEL || 'gpt-6-luna';
+  _getFallbackProviders(primaryProvider) {
+    const priorityOrder = ['soclaas', 'groq', 'openai'];
+    return priorityOrder.filter(
+      (provider) =>
+        provider !== primaryProvider && this._hasProviderKey(provider),
+    );
+  }
 
-    this.client = {
+  _createProviderRunner(provider) {
+    if (provider === 'soclaas') {
+      const rawClient = new OpenAI({
+        baseURL:
+          process.env.SOCLAAS_BASE_URL ||
+          'https://soclaas-api.comp.nus.edu.sg/v1',
+        apiKey: process.env.SOCLAAS_API_KEY,
+      });
+      const activeModel = process.env.SOCLAAS_MODEL || 'default';
+      return {
+        raw: rawClient,
+        activeModel,
+        normalize: (params) =>
+          this._normalizeSoclaasParams(params, activeModel),
+      };
+    }
+
+    if (provider === 'openai') {
+      const rawClient = new OpenAI({
+        baseURL: process.env.OPENAI_BASE_URL || undefined,
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+      const activeModel = process.env.OPENAI_MODEL || 'gpt-6-luna';
+      return {
+        raw: rawClient,
+        activeModel,
+        normalize: (params) => this._normalizeOpenAIParams(params, activeModel),
+      };
+    }
+
+    const rawClient = new Groq({
+      apiKey: process.env.GROQ_API_KEY,
+    });
+    const activeModel = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+    return {
+      raw: rawClient,
+      activeModel,
+      normalize: (params) => this._normalizeGroqParams(params, activeModel),
+    };
+  }
+
+  async _attemptFallbacks(primaryProvider, params, primaryErr) {
+    const fallbacks = this._getFallbackProviders(primaryProvider);
+    for (let i = 0; i < fallbacks.length; i += 1) {
+      const fallbackProvider = fallbacks[i];
+      try {
+        console.warn(
+          `⚠️ [LLMClient] Primary provider '${primaryProvider}' failed (${primaryErr.message}). Falling back to '${fallbackProvider}'...`,
+        );
+        const fallbackRunner = this._createProviderRunner(fallbackProvider);
+        // eslint-disable-next-line no-await-in-loop
+        return await fallbackRunner.raw.chat.completions.create(
+          fallbackRunner.normalize(params),
+        );
+      } catch (fallbackErr) {
+        console.warn(
+          `⚠️ [LLMClient] Fallback provider '${fallbackProvider}' also failed (${fallbackErr.message}).`,
+        );
+      }
+    }
+    throw primaryErr;
+  }
+
+  _buildClientWithFallback(primaryProvider) {
+    const runner = this._createProviderRunner(primaryProvider);
+    const clientWrapper = {
       chat: {
         completions: {
-          create: (params) =>
-            rawClient.chat.completions.create(
-              this._normalizeOpenAIParams(params, activeModel),
-            ),
+          create: async (params) => {
+            try {
+              return await clientWrapper.raw.chat.completions.create(
+                runner.normalize(params),
+              );
+            } catch (primaryErr) {
+              return this._attemptFallbacks(
+                primaryProvider,
+                params,
+                primaryErr,
+              );
+            }
+          },
         },
       },
-      raw: rawClient,
+      raw: runner.raw,
     };
+    return { clientWrapper, activeModel: runner.activeModel };
+  }
+
+  _initOpenAI() {
+    const { clientWrapper, activeModel } =
+      this._buildClientWithFallback('openai');
+    this.client = clientWrapper;
     this.provider = 'openai';
     console.log(
       `✅ [LLMClient] Initialized OpenAI client (model: ${activeModel})`,
@@ -110,32 +232,9 @@ class GroqClientSingleton {
   }
 
   _initSoclaas() {
-    const rawClient = new OpenAI({
-      baseURL:
-        process.env.SOCLAAS_BASE_URL ||
-        'https://soclaas-api.comp.nus.edu.sg/v1',
-      apiKey: process.env.SOCLAAS_API_KEY,
-    });
-    const activeModel = process.env.SOCLAAS_MODEL || 'default';
-
-    this.client = {
-      chat: {
-        completions: {
-          create: (params) => {
-            // eslint-disable-next-line prefer-object-spread
-            const finalParams = Object.assign({}, params);
-            if (
-              !finalParams.model ||
-              finalParams.model === 'openai/gpt-oss-120b'
-            ) {
-              finalParams.model = activeModel;
-            }
-            return rawClient.chat.completions.create(finalParams);
-          },
-        },
-      },
-      raw: rawClient,
-    };
+    const { clientWrapper, activeModel } =
+      this._buildClientWithFallback('soclaas');
+    this.client = clientWrapper;
     this.provider = 'soclaas';
     console.log(
       `✅ [LLMClient] Initialized NUS SoC LaaS client (model: ${activeModel})`,
@@ -143,9 +242,8 @@ class GroqClientSingleton {
   }
 
   _initGroq() {
-    this.client = new Groq({
-      apiKey: process.env.GROQ_API_KEY,
-    });
+    const { clientWrapper } = this._buildClientWithFallback('groq');
+    this.client = clientWrapper;
     this.provider = 'groq';
     console.log('Groq client initialized');
   }
@@ -154,12 +252,12 @@ class GroqClientSingleton {
     if (!this.client) {
       const targetProvider = this._resolveProvider();
 
-      if (targetProvider === 'openai' && process.env.OPENAI_API_KEY) {
-        this._initOpenAI();
-      } else if (targetProvider === 'soclaas' && process.env.SOCLAAS_API_KEY) {
+      if (targetProvider === 'soclaas' && process.env.SOCLAAS_API_KEY) {
         this._initSoclaas();
       } else if (targetProvider === 'groq' && process.env.GROQ_API_KEY) {
         this._initGroq();
+      } else if (targetProvider === 'openai' && process.env.OPENAI_API_KEY) {
+        this._initOpenAI();
       } else {
         throw new Error(
           'Either OPENAI_API_KEY, SOCLAAS_API_KEY, or GROQ_API_KEY environment variable is required',
