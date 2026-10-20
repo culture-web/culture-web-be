@@ -7,6 +7,10 @@ describe('GroqClientSingleton / LLM Client Multi-Provider Tests', () => {
     jest.resetModules();
     // eslint-disable-next-line prefer-object-spread
     process.env = Object.assign({}, originalEnv);
+    delete process.env.SOCLAAS_API_KEY;
+    delete process.env.GROQ_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.LLM_PROVIDER;
     groqClient.reset();
   });
 
@@ -15,11 +19,32 @@ describe('GroqClientSingleton / LLM Client Multi-Provider Tests', () => {
     groqClient.reset();
   });
 
-  test('prioritizes OpenAI in production environment when OPENAI_API_KEY is present', () => {
+  test('prioritizes SoC LaaS in production when all keys are present (OpenAI as last resort)', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.SOCLAAS_API_KEY = 'test-soclaas-key';
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    const instance = groqClient.getInstance();
+    expect(instance).toBeDefined();
+    expect(groqClient.getProvider()).toBe('soclaas');
+    expect(groqClient.getModel()).toBe('default');
+  });
+
+  test('prioritizes Groq over OpenAI when SoC LaaS key is absent', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.GROQ_API_KEY = 'test-groq-key';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    const instance = groqClient.getInstance();
+    expect(instance).toBeDefined();
+    expect(groqClient.getProvider()).toBe('groq');
+    expect(groqClient.getModel()).toBe('openai/gpt-oss-120b');
+  });
+
+  test('uses OpenAI as last resort when only OPENAI_API_KEY is available', () => {
     process.env.NODE_ENV = 'production';
     process.env.OPENAI_API_KEY = 'test-openai-key';
-    process.env.SOCLAAS_API_KEY = 'test-soclaas-key';
-    delete process.env.LLM_PROVIDER;
 
     const instance = groqClient.getInstance();
     expect(instance).toBeDefined();
@@ -27,18 +52,7 @@ describe('GroqClientSingleton / LLM Client Multi-Provider Tests', () => {
     expect(groqClient.getModel()).toBe('gpt-6-luna');
   });
 
-  test('prioritizes SoC LaaS in development environment when both keys are present', () => {
-    process.env.NODE_ENV = 'development';
-    process.env.OPENAI_API_KEY = 'test-openai-key';
-    process.env.SOCLAAS_API_KEY = 'test-soclaas-key';
-    delete process.env.LLM_PROVIDER;
-
-    const instance = groqClient.getInstance();
-    expect(instance).toBeDefined();
-    expect(groqClient.getProvider()).toBe('soclaas');
-  });
-
-  test('respects explicit LLM_PROVIDER override regardless of NODE_ENV', () => {
+  test('respects explicit LLM_PROVIDER override when its key is present', () => {
     process.env.NODE_ENV = 'development';
     process.env.LLM_PROVIDER = 'openai';
     process.env.OPENAI_API_KEY = 'test-openai-key';
@@ -48,16 +62,50 @@ describe('GroqClientSingleton / LLM Client Multi-Provider Tests', () => {
     expect(groqClient.getProvider()).toBe('openai');
   });
 
-  test('falls back to Groq when only GROQ_API_KEY is available', () => {
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.SOCLAAS_API_KEY;
-    delete process.env.LLM_PROVIDER;
-    process.env.GROQ_API_KEY = 'test-groq-key';
+  test('falls back to default priority if explicit LLM_PROVIDER key is missing', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.LLM_PROVIDER = 'openai';
+    process.env.SOCLAAS_API_KEY = 'test-soclaas-key';
 
-    const instance = groqClient.getInstance();
-    expect(instance).toBeDefined();
-    expect(groqClient.getProvider()).toBe('groq');
-    expect(groqClient.getModel()).toBe('openai/gpt-oss-120b');
+    groqClient.getInstance();
+    expect(groqClient.getProvider()).toBe('soclaas');
+  });
+
+  test('automatically falls back to next provider at runtime when primary provider fails', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.SOCLAAS_API_KEY = 'test-soclaas-key';
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    const client = groqClient.getInstance();
+    client.raw.chat.completions.create = jest
+      .fn()
+      .mockRejectedValue(new Error('Connection timeout'));
+
+    const fallbackSpy = jest
+      .spyOn(groqClient, '_createProviderRunner')
+      .mockReturnValue({
+        raw: {
+          chat: {
+            completions: {
+              create: jest.fn().mockResolvedValue({
+                model: 'gpt-6-luna',
+                choices: [{ message: { content: 'fallback response' } }],
+              }),
+            },
+          },
+        },
+        activeModel: 'gpt-6-luna',
+        normalize: (p) => p,
+      });
+
+    const result = await client.chat.completions.create({
+      model: 'default',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(fallbackSpy).toHaveBeenCalledWith('openai');
+    expect(result.choices[0].message.content).toBe('fallback response');
+    fallbackSpy.mockRestore();
   });
 
   const runMockCompletion = async (model, inputParams, envOverrides = {}) => {
@@ -67,11 +115,14 @@ describe('GroqClientSingleton / LLM Client Multi-Provider Tests', () => {
       originalEnv,
       {
         NODE_ENV: 'production',
+        LLM_PROVIDER: 'openai',
         OPENAI_API_KEY: 'test-openai-key',
         OPENAI_MODEL: model,
       },
       envOverrides,
     );
+    delete process.env.SOCLAAS_API_KEY;
+    delete process.env.GROQ_API_KEY;
 
     const client = groqClient.getInstance();
     const mockCreate = jest.fn().mockResolvedValue({
