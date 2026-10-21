@@ -1357,6 +1357,15 @@ exports.chatMudras = async (req, res) => {
       (systemMessage.split(/\s+/).length + message.split(/\s+/).length) * 1.3,
     );
 
+    const model = groqClient.getModel();
+    const activeProvider = groqClient.getProvider() || 'groq';
+    let providerLabel = 'Groq';
+    if (activeProvider === 'soclaas') {
+      providerLabel = 'SoC LaaS';
+    } else if (activeProvider === 'openai') {
+      providerLabel = 'OpenAI';
+    }
+
     console.log('=== LLM Request Info ===');
     console.log(
       `System Message Length: ${systemMessage.length} chars, ~${Math.ceil(systemMessage.split(/\s+/).length * 1.3)} tokens`,
@@ -1368,8 +1377,8 @@ exports.chatMudras = async (req, res) => {
     console.log(
       `RAG Context: ${ragContext ? `${Math.ceil(ragContext.split(/\s+/).length * 1.3)} tokens` : 'None'}`,
     );
-    console.log(`Model: ${process.env.GROQ_MODEL || 'openai/gpt-oss-120b'}`);
-    console.log(`Provider: Groq`);
+    console.log(`Model: ${model}`);
+    console.log(`Provider: ${providerLabel}`);
     console.log('=======================\n');
 
     if (estimatedTokens > 3000) {
@@ -1378,12 +1387,10 @@ exports.chatMudras = async (req, res) => {
       );
     }
 
-    // Use the GROQ_MODEL or default model
-    const model = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
     const llmStartedAt = Date.now();
     llmAuditContext = {
-      label: 'Groq Chat Mudras',
-      provider: 'groq',
+      label: `${providerLabel} Chat Mudras`,
+      provider: activeProvider,
       model,
       messages,
       extra: {
@@ -1397,8 +1404,8 @@ exports.chatMudras = async (req, res) => {
     };
 
     logLlmRequestPayload({
-      label: 'Groq Chat Mudras',
-      provider: 'groq',
+      label: `${providerLabel} Chat Mudras`,
+      provider: activeProvider,
       model,
       messages,
       extra: {
