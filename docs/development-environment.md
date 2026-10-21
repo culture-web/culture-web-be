@@ -126,6 +126,7 @@ Backend helpers also create some KB metadata on demand. There is no verified
 complete isolated PostgreSQL/MinIO bootstrap in this guide. Do not infer isolation
 from the word “local” or point uploads at production storage.
 Groq/Hugging Face and other feature-specific providers require separate credentials.
+For configuring or rotating `SOCLAAS_API_KEY` (NUS SoC LaaS primary LLM provider) in local dev and production, see [docs/soclaas-api-key-rotation.md](soclaas-api-key-rotation.md).
 
 Development KB settings access is user-verified; uploads, retrieval, bucket
 availability and external PostgreSQL/MinIO development isolation remain unresolved.

@@ -11,6 +11,8 @@ without overwriting existing settings, then run `npm ci`,
 Configure the sibling frontend for the same project before checking.
 Follow [the setup guide](docs/development-environment.md) for external KB
 dependencies, separate application signup and maintainer-provisioned KB roles.
+For configuring or rotating the NUS SoC LaaS API key (`SOCLAAS_API_KEY`) in local
+development and production, see the [NUS SoC LaaS API Key Setup & Rotation Guide](docs/soclaas-api-key-rotation.md).
 The existing hosted dev schema needs no migration during onboarding.
 
 The older table-maintenance notes below are reference material, not onboarding steps.
