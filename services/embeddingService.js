@@ -20,6 +20,10 @@ class EmbeddingService {
   async initialize() {
     if (!this.embedder) {
       console.log('Loading embedding model:', this.modelName);
+      // Xenova models are public; strip any legacy/expired HF_TOKEN so
+      // @xenova/transformers does not send an invalid Authorization header.
+      delete process.env.HF_TOKEN;
+      delete process.env.HF_ACCESS_TOKEN;
       // eslint-disable-next-line node/no-unsupported-features/es-syntax
       const { pipeline } = await import('@xenova/transformers');
 
