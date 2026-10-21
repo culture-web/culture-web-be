@@ -19,6 +19,8 @@ class RerankerService {
   async initializeEmbedder() {
     if (!this.embedder) {
       console.log('Loading embedding model for reranker:', this.embeddingModel);
+      delete process.env.HF_TOKEN;
+      delete process.env.HF_ACCESS_TOKEN;
       // eslint-disable-next-line node/no-unsupported-features/es-syntax
       const { pipeline } = await import('@xenova/transformers');
 
@@ -54,6 +56,8 @@ class RerankerService {
     if (!this.crossEncoder) {
       console.log('Loading cross-encoder model:', this.crossEncoderModel);
       try {
+        delete process.env.HF_TOKEN;
+        delete process.env.HF_ACCESS_TOKEN;
         // eslint-disable-next-line node/no-unsupported-features/es-syntax
         const { pipeline } = await import('@xenova/transformers');
 

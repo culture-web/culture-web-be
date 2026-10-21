@@ -1,6 +1,5 @@
 process.env.SUPABASE_URL = 'https://test.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
-process.env.HF_TOKEN = 'test-hf-token';
 
 // Mock @xenova/transformers to avoid ES module issues
 jest.mock('@xenova/transformers', () => ({
